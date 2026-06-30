@@ -1,0 +1,28 @@
+// loads the custom menu
+function onOpen(){
+  SpreadsheetApp.getUi()
+  .createMenu('➡️展開メニュー')
+  .addItem('新しい依頼を展開（窓口担当者専用）', 'displayHtmlTab')
+  .addToUi();
+}
+
+// actually launch displaying the main.html to user
+function displayHtmlTab() {
+  // just make sure the cache is set when you load html
+    let botKun = BotKun.summon(magicIncantation)
+    let ss = SpreadsheetApp.getActiveSpreadsheet()
+    botKun.loadProject(ss)
+
+    var html = HtmlService.createTemplateFromFile('tenkai_main').evaluate()
+        .setSandboxMode(HtmlService.SandboxMode.IFRAME)
+        .setWidth(1000)
+        .setHeight(850);
+    SpreadsheetApp.getUi().showModalDialog(html, "展開文送信");
+}
+
+// UTILITY
+// allows to add multiple html file from the main html file (separate script and styling)
+// called using a scriptlet
+function include(File) {
+  return HtmlService.createHtmlOutputFromFile(File).getContent();
+};

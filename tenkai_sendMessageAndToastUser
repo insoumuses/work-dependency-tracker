@@ -1,0 +1,44 @@
+// The two functions at the very end of the jido tenkai process
+// Called by clicking either the public sending button or private sending button
+// See clientScript.html
+
+function sendMessageAndToastUser (room_id, body) {
+  let botKun = BotKun.summon(magicIncantation)
+  
+  try {
+    botKun.cw.send.message(room_id, body)
+    let title = 'ありがとうございました。'
+    let content = '送信済みです！'
+    let duration = 5
+    SpreadsheetApp.getActiveSpreadsheet().toast(content, title, duration);
+  }catch (err) {
+    let title = '申し訳ございません。'
+    let content = '送信失敗！\nデベロッパールームへ報告いたします。'
+    let duration = 100
+    SpreadsheetApp.getActiveSpreadsheet().toast(content, title, duration);
+    botKun.cw.reportToDevs('error while sending public tenkai message for ' + botKun.pj.config.data.pjName + '\nError : \n'+err)
+  }
+}
+
+function sendPrivateMessageAndToastUser (memberName, body) {
+  let botKun = BotKun.summon(magicIncantation)
+  
+  try {
+
+    botKun.cw.send.privateMessage(memberName, body, true)
+
+    let title = 'ありがとうございました。'
+    let content = 'プライベート送信済みです！'
+    let duration = 5
+    SpreadsheetApp.getActiveSpreadsheet().toast(content, title, duration);
+
+  }catch (err) {
+
+    let title = '申し訳ございません。'
+    let content = 'プライベート送信失敗！\nデベロッパールームへ報告いたします。'
+    let duration = 100
+    SpreadsheetApp.getActiveSpreadsheet().toast(content, title, duration);
+    
+    botKun.cw.reportToDevs('error while sending private tenkai message for "' + memberName + '" in project ' + botKun.pj.config.data.pjName + '\nError : \n'+err)
+  }
+}

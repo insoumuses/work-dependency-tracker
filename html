@@ -1,0 +1,235 @@
+<style type='text/css'>
+
+@keyframes slideInFromTop {
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+body {
+  /* background: yellow; */
+  padding: 0;
+  font-family: 'Noto Sans JP', sans-serif;
+}
+
+
+
+.main-div {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+}
+
+.input-div {
+  /* margin: 5px auto; */
+  /* background-color: red; */
+  width: 95%;
+  justify-items: center;
+}
+
+input {
+  margin: 10px;
+  padding: 0;
+  visibility: hidden;
+  opacity: 0;
+  transition: visibility 1s, opacity 1.5s linear;
+}
+
+label {
+  visibility: hidden;
+  opacity: 0;
+  transition: visibility 1s, opacity 1.5s linear;
+}
+
+#taskSelectPar {
+  visibility: hidden;
+  opacity: 0;
+  transition: visibility 1s, opacity 1.5s linear;
+}
+  
+
+.explanations {
+  animation: 1s ease-out 0s 1 slideInFromTop;
+  display: block;
+  font-weight: 300;
+  margin: 5px;
+  text-align: center;
+  transition: visibility 1s, opacity 1.5s linear;
+}
+
+
+#errors-container {
+    width: 93%;
+    margin: 30px auto;
+    padding: 0;
+    border: 2px solid #ffeb2a;
+    visibility: hidden;
+    opacity: 0;
+    transition: visibility 1s, opacity 1.5s linear;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+h3 {
+    position: relative;
+    text-align: center;
+    background-color: #ffeb2a;
+    width: 100%;
+    margin: 0;
+    padding: 10px 0;
+}
+.error {
+    position: relative;
+    text-align: center;
+    width: 100%;
+    margin: 10px;
+}
+h4.error {
+    color: red;
+    width: 100%;
+    margin: 10px;
+}
+
+
+
+.text-button-style {
+  font-weight: 900;
+}
+
+textarea {
+  display: block;
+  width: 90%;
+  margin: 30px auto;
+  padding: 1em;
+  border: 1px solid #fff;
+  border-radius: 1%;
+  resize: none;
+  white-space: pre;
+  overflow-y: auto;
+  overflow-x: auto;
+  scrollbar-color: black white;
+  font-size: 16px;
+  line-height: 130%;
+  letter-spacing: .1rem;
+  box-shadow: rgba(0, 0, 0, 0.16) 0px 3px 6px, rgba(0, 0, 0, 0.23) 0px 3px 6px;
+  transition: all 1000ms cubic-bezier(.23, 1, 0.32, 1);
+  transition: visibility 1s, opacity 1.5s linear;
+  visibility: hidden;
+  opacity: 0;
+}
+
+textarea:hover {
+  background-color: #efefef;
+  transition: all 1000ms cubic-bezier(.23, 1, 0.32, 1);
+}
+
+textarea:focus {
+  box-shadow: rgba(0, 0, 0, 0.25) 0 8px 15px;
+  background-color: #fff;
+  transition: all 1000ms cubic-bezier(.23, 1, 0.32, 1);
+}
+
+/* CSS */
+#send-button {
+  appearance: none;
+  background-color: transparent;
+  border: 2px solid #b0f2b6;
+  border-radius: 8px;
+  box-sizing: border-box;
+  color: #3B3B3B;
+  cursor: pointer;
+  display: block;
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 20px;
+  font-weight: 900;
+  line-height: normal;
+  margin: 20px auto 0px auto;
+  min-height: 60px;
+  min-width: 0;
+  outline: none;
+  padding: 16px 24px;
+  text-align: center;
+  text-decoration: none;
+  transition: all 1000ms cubic-bezier(.23, 1, 0.32, 1);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  width: 95%;
+  will-change: transform;
+  /* transition: visibility 1s, opacity 1.5s linear; */
+  visibility: hidden;
+  opacity: 0;
+}
+
+#send-button:disabled {
+  pointer-events: none;
+}
+
+#send-button:hover {
+  /* color: #fff; */
+  background-color: #b0f2b6;
+  font-weight: 900;
+  box-shadow: rgba(0, 0, 0, 0.25) 0 8px 15px;
+  transform: translateY(-2px);
+}
+
+#send-button:active {
+  box-shadow: none;
+  transform: translateY(0);
+}
+
+/* CSS */
+#private-send-button {
+  appearance: none;
+  background-color: transparent;
+  border: 2px solid #adaaa8;
+  border-radius: 8px;
+  box-sizing: border-box;
+  color: #3B3B3B;
+  cursor: pointer;
+  display: block;
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 20px;
+  font-weight: 900;
+  line-height: normal;
+  margin: 20px auto 0px auto;
+  min-height: 60px;
+  min-width: 0;
+  outline: none;
+  padding: 16px 24px;
+  text-align: center;
+  text-decoration: none;
+  transition: all 1000ms cubic-bezier(.23, 1, 0.32, 1);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  width: 95%;
+  will-change: transform;
+  /* transition: visibility 1s, opacity 1.5s linear; */
+  visibility: hidden;
+  opacity: 0;
+}
+
+#private-send-button:disabled {
+  pointer-events: none;
+}
+
+#private-send-button:hover {
+  /* color: #fff; */
+  background-color: #adaaa8;
+  font-weight: 900;
+  box-shadow: rgba(0, 0, 0, 0.25) 0 8px 15px;
+  transform: translateY(-2px);
+}
+
+#private-send-button:active {
+  box-shadow: none;
+  transform: translateY(0);
+}
+
+</style>

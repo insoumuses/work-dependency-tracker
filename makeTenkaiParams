@@ -1,0 +1,46 @@
+this.makeTenkaiMessage = function (task) {
+
+  // ① タスクのカテゴリーを取得し、SNS関連かどうかを判定
+  let category = task.rawArray[config.data.currentHeaders.indexOf(config.data.extractHeaders.taskType)]
+  let isSnsCategory = /SNS|ＳＮＳ/i.test(category || '')
+
+  // ② SNS用テンプレートが設定されていればそれを使う。なければ通常テンプレートにフォールバック
+  let templateText = (isSnsCategory && config.data.tenkaiTextSns)
+    ? config.data.tenkaiTextSns
+    : config.data.tenkaiText
+
+  let message = JSON.parse(JSON.stringify(templateText))
+
+  // ③ 選ばれたテンプレートの中に実際にある{変数}だけを抽出する
+  let regVariableExtractor = /(?<={)(.*?)(?=})/g;
+  let variablesToSearch = templateText.match(regVariableExtractor) || []
+
+  let concernedTeams = Object.entries(task.teams)
+    .filter(([team, status]) => status === '')
+    .map (([team, status]) => team)
+  
+  let value
+  for (const headerName of variablesToSearch) {
+    if (headerName.includes('対象チーム')) {
+      value = `【${concernedTeams.join('】【')}】`
+    }
+    else if(headerName.includes('PJコード')) {
+      value = config.data.pjCodes[config.data.categories.indexOf(
+        task.rawArray[config.data.currentHeaders.indexOf(config.data.extractHeaders.taskType)]
+      )]
+    }
+    else {
+      value = config.data.currentHeaders.indexOf(headerName) > -1 ?
+      task.rawArray[config.data.currentHeaders.indexOf(headerName)] || '⚠️未記入⚠️'
+      : `⚠️不正常な列名 : 「${headerName}」⚠️`
+    }
+
+    value = value instanceof Date ? formatDate(value) : value
+
+    message = message.replaceAll(`{${headerName}}`, value)
+  }
+
+  return config.data.tenkaiAutomaticTo ?
+    rooms.getTeamsTos (config.data.room.id, concernedTeams) + message
+    : message
+}

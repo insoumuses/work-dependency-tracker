@@ -1,0 +1,450 @@
+function realtime_Reminder() {
+  // 获取当前时间等基本变量
+  let today = new Date();
+  console.log(today);
+  let currentYear = today.getFullYear();
+  let currentMonth = today.getMonth();
+  let currentHour = today.getHours();
+  console.log(currentHour);
+  let currentMinute = today.getMinutes();
+  let triggerTime = currentHour >= 9 && currentHour < 20;
+  console.log(triggerTime);
+
+  if (triggerTime) {
+    console.log('ok its trigger time');
+
+    // 打开存放「コメント監視」数据的工作表
+    let komentoKanshi_Sheet = SpreadsheetApp
+      .openByUrl('')
+      .getSheetByName('手動投稿リマインダー(納品時記入)');
+    let komentoKanshi_Data = komentoKanshi_Sheet.getDataRange().getValues();
+    let headers = komentoKanshi_Data[0];
+
+    let messageArray = [];
+    let nextKomentoKanshiArray = [];
+
+    // 处理每一行数据：检测是否符合时间条件且未发送
+    function processLine(line, messageArray, newArray) {
+      let consideredTime = line[headers.indexOf('手動投稿リマインド時間')];
+      let oneWeekPassed = (today - consideredTime) > 1000 * 3600 * 24 * 7;
+      let timeMatch = (consideredTime - today) < 5 * 60 * 1000 && (consideredTime - today) > 0;
+      let isToBeSent = line[headers.indexOf('送信\nステータス')] == '';
+      console.log(consideredTime + ' is a time match : ' + timeMatch);
+      if (!consideredTime || !oneWeekPassed) {
+        if (timeMatch && isToBeSent) {
+          messageArray.push(line);
+          line[headers.indexOf('送信\nステータス')] = '送信済み!';
+        }
+        newArray.push(line);
+      }
+    }
+
+    // 遍历数据行，处理每一行
+    for (let i = 1; i < komentoKanshi_Data.length; i++) {
+      processLine(komentoKanshi_Data[i], messageArray, nextKomentoKanshiArray);
+    }
+
+    if (messageArray.length > 0) {
+      processAndSendReminder(messageArray);
+      // 清空原数据区域，并写入更新后的数据
+      komentoKanshi_Sheet.getRange(2, 1, komentoKanshi_Data.length - 1, komentoKanshi_Data[0].length).clearContent();
+      komentoKanshi_Sheet.getRange(2, 1, nextKomentoKanshiArray.length, nextKomentoKanshiArray[0].length).setValues(nextKomentoKanshiArray);
+    } else if ((nextKomentoKanshiArray.length + 1) < komentoKanshi_Data.length) {
+      komentoKanshi_Sheet.getRange(2, 1, komentoKanshi_Data.length - 1, komentoKanshi_Data[0].length).clearContent();
+      komentoKanshi_Sheet.getRange(2, 1, nextKomentoKanshiArray.length, nextKomentoKanshiArray[0].length).setValues(nextKomentoKanshiArray);
+    }
+
+    // 处理并发送提醒信息
+    function processAndSendReminder(messageArray) {
+      /********************************** 从「定例文」工作表读取模板 **********************************/
+      // 模板存放在 ID 为 13bJYvX48yyUDTscnwerSLlfA5UBEJ5jdYxPhxw68Cs4 的表格中，工作表名为「定例文」
+      let templateSpreadsheet = SpreadsheetApp.openById('13bJYvX48yyUDTscnwerSLlfA5UBEJ5jdYxPhxw68Cs4');
+      let templateSheet = templateSpreadsheet.getSheetByName('定例文');
+      let templateValues = templateSheet.getRange('A19:A35').getValues();
+      // 将二维数组整合为一个字符串，每行以换行符分隔
+      let templateMessage = templateValues.map(function(row) {
+        return row.join(" ");
+      }).join("\n");
+
+      /********************************** 以下为业务逻辑 **********************************/
+      // 定义辅助函数：获取二维数组中某个值的位置 [行, 列]
+      function get2DCoordinates(twoD_Array, valueName, loopStartRow = 0) {
+        let colIndex;
+        for (let i = loopStartRow; i < twoD_Array.length; i++) {
+          colIndex = twoD_Array[i].indexOf(valueName);
+          if (colIndex != -1) {
+            return [i, colIndex];
+          }
+        }
+      }
+
+      console.time("time and shift related");
+      // 打开排班表格
+      const shiftSpreadsheet = SpreadsheetApp.openById('1upjFhFqjJw8OE-WXxZhgfnHf8co5Amns12Tz-wDc4WU');
+      // 读取假日数据
+      const daysOffData_SheetName = '休日データ';
+      const daysOffData = shiftSpreadsheet.getSheetByName(daysOffData_SheetName).getDataRange().getValues();
+      const daysOffArray = [];
+      for (let i = 0; i < daysOffData.length; i++) {
+        daysOffArray.push(new Date(daysOffData[i][0], (daysOffData[i][1] - 1), daysOffData[i][2]));
+      }
+
+      // 判断是否休息日（周六、周日或假日）
+      function checkIfDayOff(dateToCheck = today) {
+        let dayOff = false;
+        if (dateToCheck.getDay() === 6 || dateToCheck.getDay() === 0) {
+          dayOff = true;
+        } else {
+          for (let i = 0; i < daysOffArray.length; i++) {
+            if (daysOffArray[i].getDate() === dateToCheck.getDate() &&
+                daysOffArray[i].getMonth() === dateToCheck.getMonth() &&
+                daysOffArray[i].getFullYear() === dateToCheck.getFullYear()) {
+              dayOff = true;
+              break;
+            }
+          }
+        }
+        return dayOff;
+      }
+
+      const thisMonthShiftSheet_name = currentYear + '年' + (currentMonth + 1) + '月',
+            membersDataSheet_name = 'メンバーデータ';
+
+      // 根据日期获取对应月的排班数据
+      function targetShiftData(date) {
+        let targetShiftData;
+        let targetShiftSheet_name = date.getFullYear() + '年' + (date.getMonth() + 1) + '月';
+        let targetSheet = shiftSpreadsheet.getSheetByName(targetShiftSheet_name);
+        if (targetSheet) {
+          targetShiftData = targetSheet.getDataRange().getValues();
+        } else {
+          console.log('targetShiftData function failure : ' + targetShiftSheet_name + ' not found');
+        }
+        return targetShiftData;
+      }
+
+      // 读取当月排班及成员数据
+      const todayShift_Sheet = shiftSpreadsheet.getSheetByName(thisMonthShiftSheet_name).getDataRange().getValues();
+      const membersData = shiftSpreadsheet.getSheetByName(membersDataSheet_name).getDataRange().getValues();
+
+      // 构造成员对象，key 为 CW_ID
+      const cw_ID_HeaderName = 'CW_ID';
+      const cw_ID_HeaderIndex = membersData[0].indexOf(cw_ID_HeaderName);
+      let membersObject = {};
+      for (let i = 1; i < membersData.length; i++) {
+        membersObject[membersData[i][cw_ID_HeaderIndex]] = {};
+        for (let j = 0; j < membersData[i].length; j++) {
+          if (j != cw_ID_HeaderIndex) {
+            membersObject[membersData[i][cw_ID_HeaderIndex]][membersData[0][j]] = membersData[i][j];
+          }
+        }
+      }
+
+      // 读取出勤数据设置，用于判断成员是否缺席
+      let shukkinSetteiSheet_name = '出勤データ設定',
+          shukkinSettei = shiftSpreadsheet.getSheetByName(shukkinSetteiSheet_name).getDataRange().getValues(),
+          shukkinSettei_headerForInput = 'ユーザー記入',
+          shukkinSettei_headerForVariable = '出勤報告用_関数',
+          variableToLookFor = 'fuzai',
+          headerForInputIndex = shukkinSettei[0].indexOf(shukkinSettei_headerForInput),
+          headerForFuzaiIndex = shukkinSettei[0].indexOf(shukkinSettei_headerForVariable),
+          fuzaiMarksArray = [];
+      for (let i = 1; i < shukkinSettei.length; i++) {
+        if (shukkinSettei[i][headerForFuzaiIndex] == variableToLookFor) {
+          fuzaiMarksArray.push(shukkinSettei[i][headerForInputIndex]);
+        }
+      }
+
+      // 根据日期找到排班数据中对应的日期索引
+      function getTargetDayIndex(date, targetShift) {
+        let targetIndex;
+        let dateRow = get2DCoordinates(targetShift, '日付')[0];
+        for (let i = 0; i < targetShift[dateRow].length; i++) {
+          if (targetShift[dateRow][i] instanceof Date &&
+              targetShift[dateRow][i].getDate() == date.getDate() &&
+              targetShift[dateRow][i].getMonth() == date.getMonth()) {
+            targetIndex = i;
+            break;
+          }
+        }
+        return targetIndex;
+      }
+
+      // 检查某成员是否出勤（通过对比缺席标记）
+      function scalableCheckPresence(accountID, targetDayIndex, targetShiftData) {
+        console.log('target Day index : ' + targetDayIndex);
+        console.log(membersObject[accountID]);
+        if (membersObject[accountID]) {
+          let targetMemberRow = get2DCoordinates(targetShiftData, membersObject[accountID]['名前'], 26)[0];
+          console.log(targetMemberRow);
+          let targetCellValue = targetShiftData[targetMemberRow][targetDayIndex];
+          console.log(targetCellValue);
+          return !fuzaiMarksArray.includes(targetCellValue);
+        } else {
+          sendMessage(247256019, accountID + ' : not found inside members data');
+          return false;
+        }
+      }
+
+      // 单个出勤检查
+      function checkSinglePresence(accountID, date, targetShiftData) {
+        let targetDayIndex = getTargetDayIndex(date, targetShiftData);
+        return scalableCheckPresence(accountID, targetDayIndex, targetShiftData);
+      }
+      console.timeEnd("time and shift related");
+
+      /********************************** 记录每月发送件数 ************************************/
+      const performanceTrackingSpreadsheet = SpreadsheetApp.openById('16Mq3jmAHEAQ07V5pgspoN47NgFdqDxbsjoqsCAhOzvE');
+      const numOfMessages_Sheet = performanceTrackingSpreadsheet.getSheetByName('自動リマインダ月件数');
+      function incrementOneMessageTothisMonthTracking(numberofItem = 1) {
+        let currentData = numOfMessages_Sheet.getDataRange().getValues();
+        let dateIndex = 0;
+        let messageIndex = 1;
+        for (let i = 1; i < currentData.length; i++) {
+          if (currentData[i][dateIndex].getFullYear() == currentYear &&
+              currentData[i][dateIndex].getMonth() == currentMonth) {
+            if (currentData[i][messageIndex] == '') {
+              numOfMessages_Sheet.getRange(i + 1, messageIndex + 1).setValue(numberofItem);
+            } else {
+              let newValue = currentData[i][messageIndex] + numberofItem;
+              numOfMessages_Sheet.getRange(i + 1, messageIndex + 1).setValue(newValue);
+            }
+            break;
+          }
+        }
+      }
+
+      /********************************** Chatwork API及消息发送 ************************************/
+      function cwAPIGetMethod(secondPartOfTheUrl) {
+        let baseUrl = 'https://api.chatwork.com/v2';
+        let options = {
+          "method": "get",
+          "headers": { "X-ChatWorkToken": '' }
+        };
+        return JSON.parse(UrlFetchApp.fetch(baseUrl + secondPartOfTheUrl, options));
+      }
+      
+      function sendMessage(room_id, body) {
+        let url = 'https://api.chatwork.com/v2/rooms/' + room_id + '/messages';
+        let options = {
+          'method': 'post',
+          'headers': { "X-ChatWorkToken": '' },
+          'payload': { 'body': body }
+        };
+        UrlFetchApp.fetch(url, options);
+        incrementOneMessageTothisMonthTracking(1);
+      }
+
+      // 根据房间信息和排班数据生成提醒对象，生成 [To:xxxx] 字符串
+      function getAutomaticTo(roomID, targetTeamsArray = 'all', date = today) {
+        console.time("getAutomaticTo");
+        let priority1 = 'メイン担当';
+        let priority2 = '副担当';
+        let priority3 = 'いない場合';
+        let priorityProcessed;
+        let targetRoomTeams = getTeamsObject(roomID);
+        let targetShift = targetShiftData(date);
+        let targetDayIndex = getTargetDayIndex(date, targetShift);
+        let finalTos = '';
+  
+        for (let prop in targetRoomTeams) {
+          if (targetTeamsArray == 'all' || targetTeamsArray.includes(prop)) {
+            console.log('checking ' + prop + ' ' + priority1 + ' : ' + targetRoomTeams[prop][priority1]);
+            if (targetRoomTeams[prop][priority1]) {
+              priorityProcessed = getTosOutOfArray(targetRoomTeams[prop][priority1], targetDayIndex, targetShift);
+            } else {
+              priorityProcessed = undefined;
+            }
+            if (priorityProcessed) {
+              console.log(targetRoomTeams[prop][priority1] + ' made it');
+              finalTos += priorityProcessed;
+            } else {
+              console.log('checking ' + prop + ' ' + priority2 + ' : ' + targetRoomTeams[prop][priority2]);
+              if (targetRoomTeams[prop][priority2]) {
+                priorityProcessed = getTosOutOfArray(targetRoomTeams[prop][priority2], targetDayIndex, targetShift);
+              } else {
+                priorityProcessed = undefined;
+              }
+              if (priorityProcessed) {
+                finalTos += priorityProcessed;
+              } else {
+                console.log('checking ' + prop + ' ' + priority3 + ' : ' + targetRoomTeams[prop][priority3]);
+                if (targetRoomTeams[prop][priority3]) {
+                  priorityProcessed = getTosOutOfArray(targetRoomTeams[prop][priority3], targetDayIndex, targetShift);
+                } else {
+                  priorityProcessed = undefined;
+                }
+                if (priorityProcessed) {
+                  finalTos += priorityProcessed;
+                } else {
+                  finalTos += prop + 'チームには誰も見つけなかった(^^;)。助けてくれる人いますか?\n';
+                }
+              }
+            }
+          }
+        }
+  
+        function getTeamsObject(roomID) {
+          let teamStartIndicator = '[info]',
+              teamStopIndicator = '[/info]',
+              tantoNameStartIndicator = '[code]',
+              tantoNameStopIndicator = '[/code]',
+              teamNameStartIndicator = '[title]',
+              teamNameStopIndicator = '[/title]',
+              toPartSeparator = '[hr]チームズ[hr]';
+  
+          let teamStartIndicator_length = teamStartIndicator.length,
+              teamStopIndicator_length = teamStopIndicator.length,
+              tantoNameStartIndicator_length = tantoNameStartIndicator.length,
+              tantoNameStopIndicator_length = tantoNameStopIndicator.length,
+              teamNameStartIndicator_length = teamNameStartIndicator.length,
+              teamNameStopIndicator_length = teamNameStopIndicator.length,
+              toPartSeparator_length = toPartSeparator.length;
+  
+          let fullRoomDescription = cwAPIGetMethod('/rooms/' + roomID)['description'];
+          let rawStringToProcess = fullRoomDescription.substring(fullRoomDescription.indexOf(toPartSeparator) + toPartSeparator_length);
+          let arrayOfTeamsRawStrings = [];
+  
+          while (rawStringToProcess.indexOf(teamStartIndicator) != -1) {
+            arrayOfTeamsRawStrings.push(
+              rawStringToProcess.substring(rawStringToProcess.indexOf(teamStartIndicator) + teamStartIndicator_length,
+                rawStringToProcess.indexOf(teamStopIndicator) - rawStringToProcess.indexOf(teamStartIndicator))
+            );
+            let newSubstring = rawStringToProcess.substring(rawStringToProcess.indexOf(teamStopIndicator) + teamStopIndicator_length);
+            rawStringToProcess = newSubstring;
+          }
+  
+          let teamsObject = {};
+          let teamName;
+          let evolvingString;
+          let teamTanto;
+          while (arrayOfTeamsRawStrings.length) {
+            evolvingString = arrayOfTeamsRawStrings.shift();
+            teamName = extractNameInsideCode(evolvingString, teamNameStartIndicator, teamNameStopIndicator);
+            teamsObject[teamName] = {};
+            while (evolvingString.indexOf(tantoNameStartIndicator) != -1) {
+              teamTanto = extractNameInsideCode(evolvingString, tantoNameStartIndicator, tantoNameStopIndicator);
+              evolvingString = evolvingString.substring(evolvingString.indexOf(tantoNameStopIndicator) + tantoNameStopIndicator_length);
+              if (evolvingString.indexOf(tantoNameStartIndicator) != -1) {
+                teamsObject[teamName][teamTanto] = getMembersAccountIds(evolvingString.substring(0, evolvingString.indexOf(tantoNameStartIndicator)));
+              } else {
+                teamsObject[teamName][teamTanto] = getMembersAccountIds(evolvingString);
+              }
+              evolvingString = evolvingString.substring(evolvingString.indexOf(tantoNameStartIndicator));
+            }
+          }
+  
+          function extractNameInsideCode(subString, precedingIndicator, followingIndicator) {
+            let precedingIndicator_length = precedingIndicator.length;
+            let followingIndicator_length = followingIndicator.length;
+            return subString.substring(subString.indexOf(precedingIndicator) + precedingIndicator_length,
+              subString.indexOf(followingIndicator));
+          }
+  
+          function getMembersAccountIds(string) {
+            let accountId_regex = /(?<=(\[To:))[0-9]+/g;
+            return string.match(accountId_regex);
+          }
+          return teamsObject;
+        }
+  
+        function getTosOutOfArray(arrayOfAccountIds, targetDayIndex, targetShiftData) {
+          let finalString = '';
+          for (let index = 0; index < arrayOfAccountIds.length; index++) {
+            console.log('loop ' + index + ' : checking ' + arrayOfAccountIds[index]);
+            if (scalableCheckPresence(arrayOfAccountIds[index], targetDayIndex, targetShift)) {
+              finalString += '[To:' + arrayOfAccountIds[index] + ']';
+              if (membersObject[arrayOfAccountIds[index]]) {
+                finalString += membersObject[arrayOfAccountIds[index]]['呼び方'];
+              } else {
+                finalString += '呼び方が見つからなかった';
+              }
+              finalString += 'さん\n';
+            }
+          }
+          if (finalString) {
+            return finalString;
+          }
+        }
+        console.timeEnd("getAutomaticTo");
+        return finalTos;
+      }
+  
+      // 整理 messageArray 中的数据，生成通知内容
+      let options = { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' };
+      let files_content = [];
+      let iraiBango_content = [];
+      let teamArray = [];
+  
+      for (let i = 0; i < messageArray.length; i++) {
+        let aData = messageArray[i][headers.indexOf('手動投稿リマインド時間')].toLocaleDateString("ja-JP", options)
+          + '　        ' +
+          messageArray[i][headers.indexOf('ファイル名')] + '　        ';
+        if (messageArray[i][headers.indexOf('英語')] == '') {
+          aData += '英語   ';
+          if (teamArray.indexOf('英語') == -1) {
+            teamArray.push('英語');
+          }
+        }
+        if (messageArray[i][headers.indexOf('繁体字')] == '') {
+          aData += '繁体字   ';
+          if (teamArray.indexOf('繁体字') == -1) {
+            teamArray.push('繁体字');
+          }
+        }
+        if (messageArray[i][headers.indexOf('韓国語')] == '') {
+          aData += '韓国語   ';
+          if (teamArray.indexOf('韓国語') == -1) {
+            teamArray.push('韓国語');
+          }
+        }
+        if (messageArray[i][headers.indexOf('簡体字')] == '') {
+          aData += '簡体字   ';
+          if (teamArray.indexOf('簡体字') == -1) {
+            teamArray.push('簡体字');
+          }
+        }
+        files_content.push(aData);
+        if (iraiBango_content.indexOf(messageArray[i][headers.indexOf('依頼番号')]) == -1) {
+          iraiBango_content.push(messageArray[i][headers.indexOf('依頼番号')]);
+        }
+      }
+  
+      // 根据团队信息生成提醒对象
+      let toPart = getAutomaticTo(274934332, teamArray);
+      console.log(toPart);
+  
+      // 以下示例：从数据中筛选符合时间条件的 A、B 列数据（可根据实际情况调整）
+      let filteredAColumnData = [];
+      for (let i = 1; i < komentoKanshi_Data.length; i++) {
+        let consideredTime = komentoKanshi_Data[i][headers.indexOf('手動投稿リマインド時間')];
+        let timeMatch = (consideredTime - today) < 5 * 60 * 1000 && (consideredTime - today) > 0;
+        if (timeMatch) {
+          filteredAColumnData.push(komentoKanshi_Data[i][headers.indexOf('投稿日時　　　　　　　　　　　　　タイトル')]);
+        }
+      }
+      let filteredBColumnData = [];
+      for (let i = 1; i < komentoKanshi_Data.length; i++) {
+        let consideredTime = komentoKanshi_Data[i][headers.indexOf('手動投稿リマインド時間')];
+        let timeMatch = (consideredTime - today) < 5 * 60 * 1000 && (consideredTime - today) > 0;
+        if (timeMatch) {
+          filteredBColumnData.push(komentoKanshi_Data[i][headers.indexOf('国内チーム')]);
+        }
+      }
+  
+      // 使用从定例文中读取的模板作为基础消息，并替换模板中的占位符（例如：${aData}）
+      let finalMessage = templateMessage;
+      if (filteredAColumnData.length > 0) {
+        finalMessage = finalMessage.replace('${aData}', filteredAColumnData[0]);
+      }
+      // 只保留单个 \n，减少空行
+      finalMessage = toPart.trim() + "\n" + filteredBColumnData.join("\n") + "\n" + finalMessage.trim();
+      // 再次用正则压缩多余空行（把连续空行替换为单个）
+      finalMessage = finalMessage.replace(/\n{2,}/g, "\n");
+  
+      // 发送消息到指定 Chatwork 房间
+      sendMessage(274934332, finalMessage);
+    } // end processAndSendReminder
+
+  } // end triggerTime
+}

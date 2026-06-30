@@ -1,235 +1,185 @@
-<style type='text/css'>
+<script>
 
-@keyframes slideInFromTop {
-  0% {
-    transform: translateY(-100%);
-  }
-  100% {
-    transform: translateY(0);
-  }
-}
+      // OVERALL VUE:
+        // An Async process is necessary to get all the tenkai data needed from the server (GAS, sheet side)
+        // the passDataToCallBackFunc will call the getTenkaiParams from the server,
+        // and then pass the resolved data to all callback functions
 
-body {
-  /* background: yellow; */
-  padding: 0;
-  font-family: 'Noto Sans JP', sans-serif;
-}
+      
+      // SERVER-SIDE CALL FUNCTION
+      
+      // gets data using a server-side function
+      // passes it as parameters to all client call back functions
+      function ServerClientHandler () {
 
+        const getServerPromise = function (serverFuncName) {
+          return new Promise((resolve, reject) => {
+            google.script.run.withSuccessHandler((data) => {
+                resolve(data)
+              }).withFailureHandler((err) => {
+                reject(err)
+              })[serverFuncName]()
+          });
+        }
 
+        this.passDataToCallBackFunc = async function (serverGetFunctionName, ...clientCallBackFunctions) {
+          try {
+            let data = await getServerPromise(serverGetFunctionName);
+            data = JSON.parse(data)
+            clientCallBackFunctions.forEach(func => {
+              func(data);
+            })
+          } catch (error) {
+            alert(error);
+          }
+        }
 
-.main-div {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  flex-direction: column;
-}
+      }
 
-.input-div {
-  /* margin: 5px auto; */
-  /* background-color: red; */
-  width: 95%;
-  justify-items: center;
-}
+      // JQUERIES TO CONTROL THE HTML ELEMENTS
 
-input {
-  margin: 10px;
-  padding: 0;
-  visibility: hidden;
-  opacity: 0;
-  transition: visibility 1s, opacity 1.5s linear;
-}
+      // define all html elements to be impacted by the change of data from server
+      let currentTask
+      let params
+      const updateParams = function (paramsFromServer) {
+        params = paramsFromServer
+        currentTask = params.tasks[2]
+      }
 
-label {
-  visibility: hidden;
-  opacity: 0;
-  transition: visibility 1s, opacity 1.5s linear;
-}
+      // textArea for the tenkai message
+      const textArea = $("#text-edit");
+      const changeTextAreaVal = function (paramsFromServer) {
+        textArea.val(params.tasks[params.tasks.length-1].message);
+        textArea.css("visibility","visible");
+        textArea.css("opacity","1");
+      }
+      const logValInTextArea = function (paramsFromServer) {
+        // alert(paramsFromServer)
+        textArea.val(paramsFromServer);
+        textArea.css("visibility","visible");
+        textArea.css("opacity","1");
+      }
 
-#taskSelectPar {
-  visibility: hidden;
-  opacity: 0;
-  transition: visibility 1s, opacity 1.5s linear;
-}
-  
+      // dislays explanations at the top for users
+      const explanationTxt = $("#explanations");
+      const actualiseExplanations = function (paramsFromServer) {
+        explanationTxt.css("visibility","hidden");
+        explanationTxt.css("opacity","0");
+        let newHtmlTxt = `下記の展開文をご確認・ご編集の上、<br>「送信」ボタンを押してください。`;
+        explanationTxt.html(newHtmlTxt);
+        explanationTxt.css("visibility","visible");
+        explanationTxt.css("opacity","1");
+      }
 
-.explanations {
-  animation: 1s ease-out 0s 1 slideInFromTop;
-  display: block;
-  font-weight: 300;
-  margin: 5px;
-  text-align: center;
-  transition: visibility 1s, opacity 1.5s linear;
-}
+      // public send button
+      const sendBtn = $("#send-button");
+      const activateButton = function (paramsFromServer) {
+        let newHtmlTxt = "「" + paramsFromServer.room.name + "」へ<br>送信！";
+        sendBtn.html(newHtmlTxt);
+        sendBtn.click(function() {
+          let body = textArea.val();
+          let room = params.room.id;
+          try {
+            google.script.run.sendMessageAndToastUser(room, body);
+            google.script.host.close();
+          } catch (err){
+            alert(err);
+          }
+        })
+        sendBtn.css("visibility","visible");
+        sendBtn.css("opacity","1");
+      }
 
+      // private send button
+      const privateSendBtn = $("#private-send-button");
+      const activatePrivateButton = function (paramsFromServer) {
 
-#errors-container {
-    width: 93%;
-    margin: 30px auto;
-    padding: 0;
-    border: 2px solid #ffeb2a;
-    visibility: hidden;
-    opacity: 0;
-    transition: visibility 1s, opacity 1.5s linear;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-}
-h3 {
-    position: relative;
-    text-align: center;
-    background-color: #ffeb2a;
-    width: 100%;
-    margin: 0;
-    padding: 10px 0;
-}
-.error {
-    position: relative;
-    text-align: center;
-    width: 100%;
-    margin: 10px;
-}
-h4.error {
-    color: red;
-    width: 100%;
-    margin: 10px;
-}
+        let newHtmlTxt = params.tasks[params.tasks.length-1].tanto ?
+          "「" + params.tasks[params.tasks.length-1].tanto["呼び方"] + "さん」だけに<br>🤫プライベート送信！🤫"
+          : "登録されていないユーザー名が「担当」になっていますので、<br>🙊プライベート送信が不可能🙊"
+        privateSendBtn.html(newHtmlTxt);
 
+        privateSendBtn.click(function() {
+          let body = textArea.val()
+          try {
+            if(currentTask.tanto) {
+              google.script.run.sendPrivateMessageAndToastUser(currentTask.tanto['呼び方'], body);
+            }
+            else {
+              alert('この依頼の「担当」が登録されていないので、\nプライベート送信が不可能になっています。\n「設定」シートで「担当」のリストを更新してください。')
+            }
+            
+          } catch (err){
+            alert(err);
+          }
+        })
+        privateSendBtn.css("visibility","visible");
+        privateSendBtn.css("opacity","1");
+      }
 
+      // called by the radio buttons below
+      const updateCurrentTask = function (taskIndex) {
+        currentTask = params.tasks[taskIndex]
+        textArea.val(currentTask["message"])
 
-.text-button-style {
-  font-weight: 900;
-}
+        let newHtmlTxt = currentTask.tanto ?
+          "「" + currentTask.tanto["呼び方"] + "さん」だけに<br>🤫プライベート送信！🤫"
+          : "登録されていないユーザー名が「担当」になっていますので、<br>🙊プライベート送信が不可能🙊"
+        
+        privateSendBtn.html(newHtmlTxt)
+      }
 
-textarea {
-  display: block;
-  width: 90%;
-  margin: 30px auto;
-  padding: 1em;
-  border: 1px solid #fff;
-  border-radius: 1%;
-  resize: none;
-  white-space: pre;
-  overflow-y: auto;
-  overflow-x: auto;
-  scrollbar-color: black white;
-  font-size: 16px;
-  line-height: 130%;
-  letter-spacing: .1rem;
-  box-shadow: rgba(0, 0, 0, 0.16) 0px 3px 6px, rgba(0, 0, 0, 0.23) 0px 3px 6px;
-  transition: all 1000ms cubic-bezier(.23, 1, 0.32, 1);
-  transition: visibility 1s, opacity 1.5s linear;
-  visibility: hidden;
-  opacity: 0;
-}
+      // init the radio buttons
+      const taskSelectRadios = $('input[name="task_select"]');
+      const initTaskSelector = function (paramsFromServer) {
 
-textarea:hover {
-  background-color: #efefef;
-  transition: all 1000ms cubic-bezier(.23, 1, 0.32, 1);
-}
+        let paragraph = $("#taskSelectPar")
+        paragraph.css("visibility","visible");
+        paragraph.css("opacity","1")
 
-textarea:focus {
-  box-shadow: rgba(0, 0, 0, 0.25) 0 8px 15px;
-  background-color: #fff;
-  transition: all 1000ms cubic-bezier(.23, 1, 0.32, 1);
-}
+        let currentLabel
 
-/* CSS */
-#send-button {
-  appearance: none;
-  background-color: transparent;
-  border: 2px solid #b0f2b6;
-  border-radius: 8px;
-  box-sizing: border-box;
-  color: #3B3B3B;
-  cursor: pointer;
-  display: block;
-  font-family: 'Noto Sans JP', sans-serif;
-  font-size: 20px;
-  font-weight: 900;
-  line-height: normal;
-  margin: 20px auto 0px auto;
-  min-height: 60px;
-  min-width: 0;
-  outline: none;
-  padding: 16px 24px;
-  text-align: center;
-  text-decoration: none;
-  transition: all 1000ms cubic-bezier(.23, 1, 0.32, 1);
-  user-select: none;
-  -webkit-user-select: none;
-  touch-action: manipulation;
-  width: 95%;
-  will-change: transform;
-  /* transition: visibility 1s, opacity 1.5s linear; */
-  visibility: hidden;
-  opacity: 0;
-}
+        // init the changes of message AND PRIVATE SEND based on button selection
+        for (let i= 0; i < paramsFromServer.tasks.length; i++) {
+          currentLabel = $('#label_'+(i+1))
 
-#send-button:disabled {
-  pointer-events: none;
-}
+          currentLabel
+            .text(`【${paramsFromServer.tasks[i].taskNum}】：${paramsFromServer.tasks[i].taskType}（${Object.entries(paramsFromServer.tasks[i].teams)
+              .filter(([team, status]) => status === '')
+              .map (([team, status]) => team)
+              .join('・')}）`)
 
-#send-button:hover {
-  /* color: #fff; */
-  background-color: #b0f2b6;
-  font-weight: 900;
-  box-shadow: rgba(0, 0, 0, 0.25) 0 8px 15px;
-  transform: translateY(-2px);
-}
+          currentLabel.css("visibility","visible");
+          currentLabel.css("opacity","1");
 
-#send-button:active {
-  box-shadow: none;
-  transform: translateY(0);
-}
+          taskSelectRadios[i].style.visibility = "visible"
+          taskSelectRadios[i].style.opacity = "1"
 
-/* CSS */
-#private-send-button {
-  appearance: none;
-  background-color: transparent;
-  border: 2px solid #adaaa8;
-  border-radius: 8px;
-  box-sizing: border-box;
-  color: #3B3B3B;
-  cursor: pointer;
-  display: block;
-  font-family: 'Noto Sans JP', sans-serif;
-  font-size: 20px;
-  font-weight: 900;
-  line-height: normal;
-  margin: 20px auto 0px auto;
-  min-height: 60px;
-  min-width: 0;
-  outline: none;
-  padding: 16px 24px;
-  text-align: center;
-  text-decoration: none;
-  transition: all 1000ms cubic-bezier(.23, 1, 0.32, 1);
-  user-select: none;
-  -webkit-user-select: none;
-  touch-action: manipulation;
-  width: 95%;
-  will-change: transform;
-  /* transition: visibility 1s, opacity 1.5s linear; */
-  visibility: hidden;
-  opacity: 0;
-}
+          taskSelectRadios[i].addEventListener('change', function() {
+            updateCurrentTask(taskSelectRadios[i].value)
+          });
+        }
 
-#private-send-button:disabled {
-  pointer-events: none;
-}
+        textArea.css("visibility","visible");
+        textArea.css("opacity","1");
 
-#private-send-button:hover {
-  /* color: #fff; */
-  background-color: #adaaa8;
-  font-weight: 900;
-  box-shadow: rgba(0, 0, 0, 0.25) 0 8px 15px;
-  transform: translateY(-2px);
-}
+      }
 
-#private-send-button:active {
-  box-shadow: none;
-  transform: translateY(0);
-}
+      // MAIN PROCESS
 
-</style>
+      const serverToClient = new ServerClientHandler();
+
+      serverToClient.passDataToCallBackFunc(
+        "getTenkaiParams", 
+        updateParams,
+        initTaskSelector,
+        actualiseExplanations, 
+        /**actualiseErrorDiv,*/ 
+        changeTextAreaVal, 
+        activateButton,
+        activatePrivateButton
+      );
+
+      
+
+    </script>

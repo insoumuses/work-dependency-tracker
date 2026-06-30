@@ -1,0 +1,16 @@
+// create messages
+// function called from the client side (see clientScript)
+function getTenkaiParams () {
+  console.warn('LOADING TENKAI PARAMS');
+  console.time('Loading message');
+
+  let botKun = BotKun.summon(magicIncantation)
+  botKun.loadProject()
+
+  let parameters = botKun.pj.tenkai.makeTenkaiParams(3)
+
+  console.log(parameters)
+
+  console.timeEnd('Loading message')
+  return JSON.stringify(parameters)
+}

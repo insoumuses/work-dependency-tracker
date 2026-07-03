@@ -1,73 +1,30 @@
-/**
- * GGET依頼管理表専用：
- * 設定!A2の内容によって通常モード / SNS専用モードを切り替える
- *
- * 通常モード：
- *   全案件を残し、設定!A2の通常テンプレートでmessageを作り直す
- *
- * SNSモード：
- *   カテゴリーにSNSが含まれる案件だけ残し、設定!A2のSNSテンプレートでmessageを作り直す
- */
-function ggetTenkaiModeOverride20260703_(parameters, botKun) {
-  const config = botKun.pj.config.data;
-  const activeTemplate = getGgetActiveTemplate20260703_(config);
+function makeGgetMessageFromTemplate20260703_(task, config, template) {
+  const oldMessage = task.message || '';
 
-  const isSnsMode = /SNS関連の依頼が届きました/.test(activeTemplate || '');
+  const toPrefix = extractGgetToPrefix20260703_(oldMessage);
 
-  console.log('GGET SNS mode: ' + isSnsMode);
+  let message = template;
+  const variablesToSearch = template.match(/(?<={)(.*?)(?=})/g) || [];
 
-  if (isSnsMode) {
-    return rewriteGgetTasksByTemplate20260703_(parameters, config, activeTemplate, true);
-  }
+  variablesToSearch.forEach(function(headerName) {
+    let value = getGgetValueByHeader20260703_(task, config, headerName);
 
-  return rewriteGgetTasksByTemplate20260703_(parameters, config, activeTemplate, false);
-}
-
-/**
- * parameters内の依頼データを探してmessageを作り直す
- *
- * snsOnly = true  ：SNS案件だけ残す
- * snsOnly = false ：全案件を残す
- */
-function rewriteGgetTasksByTemplate20260703_(value, config, template, snsOnly) {
-  if (Array.isArray(value)) {
-    const hasTaskObjects = value.some(function(item) {
-      return isGgetTaskObject20260703_(item);
-    });
-
-    if (hasTaskObjects) {
-      return value
-        .filter(function(item) {
-          if (!isGgetTaskObject20260703_(item)) {
-            return true;
-          }
-
-          if (!snsOnly) {
-            return true;
-          }
-
-          return isGgetSnsTask20260703_(item, config);
-        })
-        .map(function(item) {
-          if (!isGgetTaskObject20260703_(item)) {
-            return item;
-          }
-
-          item.message = makeGgetMessageFromTemplate20260703_(item, config, template);
-          return item;
-        });
+    if (value === null || value === undefined) {
+      value = '';
     }
 
-    return value.map(function(item) {
-      return rewriteGgetTasksByTemplate20260703_(item, config, template, snsOnly);
-    });
-  }
+    if (value instanceof Date) {
+      value = formatGgetDate20260703_(value);
+    }
 
-  if (value && typeof value === 'object') {
-    Object.keys(value).forEach(function(key) {
-      value[key] = rewriteGgetTasksByTemplate20260703_(value[key], config, template, snsOnly);
-    });
-  }
+    if (typeof value === 'string' && isGgetDateString20260703_(value)) {
+      value = formatGgetDate20260703_(new Date(value));
+    }
 
-  return value;
+    message = message.replaceAll('{' + headerName + '}', value);
+  });
+
+  console.log('rewritten message preview: ' + message.slice(0, 200));
+
+  return toPrefix + message;
 }

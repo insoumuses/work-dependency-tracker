@@ -1,20 +1,20 @@
-function applyGgetSnsTenkaiOverride_(parameters, botKun) {
-  console.log('★★★★★ applyGgetSnsTenkaiOverride_ called ★★★★★');
+function getTenkaiParams () {
+  console.warn('LOADING TENKAI PARAMS');
+  console.time('Loading message');
 
-  console.log('parameters exists: ' + !!parameters);
-  console.log('botKun exists: ' + !!botKun);
+  let botKun = BotKun.summon(magicIncantation)
+  botKun.loadProject()
 
-  if (!parameters) {
-    console.log('return reason: parameters is empty');
-    return parameters;
-  }
+  let parameters = botKun.pj.tenkai.makeTenkaiParams(3)
 
-  console.log('parameters is array: ' + Array.isArray(parameters));
-  console.log('parameters type: ' + typeof parameters);
-  console.log('parameters keys: ' + Object.keys(parameters).join(', '));
+  console.log('★★ before GGET override ★★')
 
-  console.log('parameters preview:');
-  console.log(JSON.stringify(parameters, null, 2).slice(0, 3000));
+  parameters = applyGgetSnsTenkaiOverride_(parameters, botKun)
 
-  return parameters;
+  console.log('★★ after GGET override ★★')
+
+  console.log(JSON.stringify(parameters, null, 2))
+
+  console.timeEnd('Loading message')
+  return JSON.stringify(parameters)
 }

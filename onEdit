@@ -1,0 +1,74 @@
+// automatically fill cells once the "tanto" first column is edited
+// fills : 
+  // dates
+  // task number
+  // filepath (if any)
+
+function onEdit(e) {
+
+  let activeSpreadsheet = e.source
+  let currSheet = activeSpreadsheet.getActiveSheet()
+
+  // try summoning (if cache is not ready, botKun load of external spreadsheet will trigger an error)  
+  let botKun
+  try {
+    botKun = BotKun.summon(magicIncantation);
+  } catch (err) {
+    // ask user to manually wake up bot Kun
+    SpreadsheetApp.getUi().alert('ボット君がまだ起きていないようです。\n\n「設定」シートに移動し、\n「ボット君をリフレッシュ！」ボタンを押してください。');
+  }
+  
+  // and load current Spreadsheet as project
+  botKun.loadProject(activeSpreadsheet)
+  
+
+  // check Sheet
+  let notTheRightSheet = currSheet.getName() !== botKun.pj.config.data.currentSheetName
+  // check column
+  let notTheRightColumn = e.range.getLastColumn() !== 1
+  // opt out
+  if (notTheRightSheet || notTheRightColumn) return
+
+
+  // declare names of the columns that will be pasted in
+  let uketsukeName = '受付',
+      tenkaiName = '展開',
+      iraibangoName = '依頼番号',
+      filePathName = botKun.pj.config.data.filePath ? botKun.pj.config.data.filePath.colName : 'nope'
+
+  // get last irai bango
+  let currRow = e.range.getLastRow()
+  let iraibangoCol = botKun.pj.taskSheet.getCol(iraibangoName)
+  let lastIraiBango = currSheet.getRange(currRow-1, iraibangoCol).getValue();
+
+  // create new Irai bango
+  let newIraiBango = botKun.pj.taskSheet.makeNextTaskRef(lastIraiBango)
+
+  // init date to 
+  let now = new Date ()
+
+  // create paste array
+  let pasteArray = botKun.pj.config.data.currentHeaders.map(el => {
+    if (el === uketsukeName || el === tenkaiName) {
+      return now
+    }
+    else if (el === iraibangoName) {
+      return newIraiBango
+    }
+    else if (el === filePathName){
+      return botKun.pj.config.data.filePath.basePath + newIraiBango
+    }
+    else {
+      return ''
+    }
+  })
+
+  // format array for setting values
+  // erase first entry and put inside []
+  pasteArray.shift()
+  pasteArray = [pasteArray]
+
+  // // insert in range
+  currSheet.getRange(currRow, 2, 1, botKun.pj.config.data.currentHeaders.length - 1).setValues(pasteArray)
+
+}

@@ -1,124 +1,20 @@
-function applyGgetSnsTenkaiOverride_(parameters, botKun) {
-  const config = botKun.pj.config.data;
+function getTenkaiParams () {
+  console.warn('LOADING TENKAI PARAMS');
+  console.time('Loading message');
 
-  console.log('===== GGET SNS override start =====');
+  let botKun = BotKun.summon(magicIncantation)
+  botKun.loadProject()
 
-  if (!parameters) {
-    console.log('parameters is empty');
-    return parameters;
-  }
+  let parameters = botKun.pj.tenkai.makeTenkaiParams(3)
 
-  console.log('parameters type: ' + (Array.isArray(parameters) ? 'array' : typeof parameters));
+  console.log('★★ before GGET override ★★')
 
-  const tasks = Array.isArray(parameters) ? parameters : parameters.tasks;
+  parameters = applyGgetSnsTenkaiOverride_(parameters, botKun)
 
-  if (!tasks || !Array.isArray(tasks)) {
-    console.warn('tasks not found');
-    console.log(JSON.stringify(parameters, null, 2));
-    return parameters;
-  }
+  console.log('★★ after GGET override ★★')
 
-  console.log('tasks length: ' + tasks.length);
+  console.log(JSON.stringify(parameters, null, 2))
 
-  tasks.forEach(function(task, index) {
-    console.log('----- task index: ' + index + ' -----');
-
-    if (!task.rawArray) {
-      console.log('task.rawArray not found');
-      console.log(JSON.stringify(task, null, 2));
-      return;
-    }
-
-    console.log('currentHeaders: ' + JSON.stringify(config.currentHeaders));
-    console.log('rawArray: ' + JSON.stringify(task.rawArray));
-
-    const category = getGgetTaskValue_(task, config, 'カテゴリー');
-    console.log('category by header カテゴリー: ' + category);
-
-    // 万一 header 名称で取れない場合、rawArray 全体から SNS を探す
-    const rawText = task.rawArray.join(' ');
-    const hasSnsInRawArray = /SNS|ＳＮＳ/i.test(rawText);
-    console.log('has SNS in rawArray: ' + hasSnsInRawArray);
-
-    if (!hasSnsInRawArray) {
-      console.log('SNS not found, skipped');
-      return;
-    }
-
-    console.log('SNS override applied');
-
-    task.message = makeGgetSnsTenkaiMessage_(task, botKun);
-  });
-
-  console.log('===== GGET SNS override end =====');
-
-  return parameters;
-}
-
-function makeGgetSnsTenkaiMessage_(task, botKun) {
-  const config = botKun.pj.config.data;
-
-  const template = `お疲れ様です(coffee)
-SNS関連の依頼が届きました。下記のご対応をお願いいたします。
-[info][title]【{依頼番号}】〆{社内締切}[/title]
-{カテゴリー}
-
-{投稿日時}
-{社外シート}
-{備考}
-[/info]
-[code]BNE【GGET_SNS補助】【海外】SNS運用[/code]
-
-よろしくお願いいたします。`;
-
-  let message = template;
-  const variablesToSearch = template.match(/(?<={)(.*?)(?=})/g) || [];
-
-  variablesToSearch.forEach(function(headerName) {
-    let value = getGgetTaskValue_(task, config, headerName);
-
-    if (value === null || value === undefined) {
-      value = '';
-    }
-
-    if (value instanceof Date) {
-      value = formatGgetDate_(value);
-    }
-
-    if (headerName === '備考' && value !== '') {
-      value = `※備考：${value}`;
-    }
-
-    message = message.replaceAll(`{${headerName}}`, value);
-  });
-
-  return message;
-}
-
-function getGgetTaskValue_(task, config, headerName) {
-  if (!task || !config || !config.currentHeaders || !task.rawArray) {
-    return '';
-  }
-
-  const colIndex = config.currentHeaders.indexOf(headerName);
-
-  if (colIndex === -1) {
-    return '';
-  }
-
-  return task.rawArray[colIndex];
-}
-
-function formatGgetDate_(date) {
-  let dateStr = `${date.getMonth() + 1}/${date.getDate()}`;
-  dateStr += `(${['日','月','火','水','木','金','土'][date.getDay()]}) `;
-
-  let hours = date.getHours().toString();
-  let minutes = date.getMinutes().toString();
-
-  dateStr += hours.length === 1 ? '0' + hours : hours;
-  dateStr += ':';
-  dateStr += minutes.length === 1 ? '0' + minutes : minutes;
-
-  return dateStr;
+  console.timeEnd('Loading message')
+  return JSON.stringify(parameters)
 }

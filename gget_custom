@@ -1,70 +1,100 @@
-function getTenkaiParams () {
-  console.warn('LOADING TENKAI PARAMS');
-  console.time('Loading message');
-
-  let botKun = BotKun.summon(magicIncantation);
-  botKun.loadProject();
-
-  let parameters = botKun.pj.tenkai.makeTenkaiParams(3);
-
-  parameters = ggetCleanMessageOverride20260703_(parameters, botKun);
-
-  console.log(JSON.stringify(parameters, null, 2));
-
-  console.timeEnd('Loading message');
-  return JSON.stringify(parameters);
-}
 /**
  * GGET依頼管理表専用：
- * BotKunが作ったmessageを使わず、カテゴリーに応じてGAS側でmessageを作り直す
+ * 設定!A2の内容によって通常モード / SNS専用モードを切り替える
  */
-function ggetCleanMessageOverride20260703_(parameters, botKun) {
+function ggetTenkaiModeOverride20260703_(parameters, botKun) {
   const config = botKun.pj.config.data;
-  let changedCount = 0;
 
-  walkGgetParams20260703_(parameters, function(obj) {
-    if (!isGgetTaskObject20260703_(obj)) {
-      return;
-    }
+  // 設定!A2、つまり現在使われている展開テンプレート
+  const activeTemplate = getGgetActiveTemplate20260703_(config);
 
-    const category = getGgetValueByHeader20260703_(obj, config, 'カテゴリー');
-    const isSns = /SNS|ＳＮＳ/i.test(category || '');
+  // SNS専用テンプレートかどうか判定
+  const isSnsMode = /SNS関連の依頼が届きました/.test(activeTemplate || '');
 
-    obj.message = isSns
-      ? makeGgetSnsMessage20260703_(obj, config)
-      : makeGgetNormalMessage20260703_(obj, config);
+  console.log('GGET SNS mode: ' + isSnsMode);
 
-    changedCount++;
-  });
+  if (isSnsMode) {
+    // SNSモード：
+    // カテゴリーにSNSが含まれる案件だけ残し、設定!A2のSNSテンプレートでmessageを作り直す
+    return filterAndRewriteGgetSnsTasks20260703_(parameters, config, activeTemplate);
+  }
 
-  console.log('GGET clean message override count: ' + changedCount);
+  // 通常モード：
+  // ここではBotKunの通常処理をそのまま使う
   return parameters;
 }
 
 
 /**
- * parametersの中を再帰的に探す
+ * 現在の展開テンプレートを取得
+ * 基本はconfig.tenkaiTextを使う。なければ設定!A2を読む
  */
-function walkGgetParams20260703_(value, callback) {
-  if (Array.isArray(value)) {
-    value.forEach(function(item) {
-      walkGgetParams20260703_(item, callback);
-    });
-    return;
+function getGgetActiveTemplate20260703_(config) {
+  if (config && config.tenkaiText) {
+    return config.tenkaiText;
   }
 
-  if (value && typeof value === 'object') {
-    callback(value);
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('設定');
 
-    Object.keys(value).forEach(function(key) {
-      walkGgetParams20260703_(value[key], callback);
-    });
+  if (!sheet) {
+    return '';
   }
+
+  return sheet.getRange('A2').getValue();
 }
 
 
 /**
- * BotKunが生成した依頼データっぽいオブジェクトかどうか判定
+ * SNSモード時：
+ * parameters内の依頼データ配列を探し、
+ * SNS案件だけ残して、SNSテンプレートでmessageを作り直す
+ */
+function filterAndRewriteGgetSnsTasks20260703_(value, config, template) {
+  if (Array.isArray(value)) {
+    const hasTaskObjects = value.some(function(item) {
+      return isGgetTaskObject20260703_(item);
+    });
+
+    if (hasTaskObjects) {
+      const filtered = value
+        .filter(function(item) {
+          if (!isGgetTaskObject20260703_(item)) {
+            return true;
+          }
+
+          return isGgetSnsTask20260703_(item, config);
+        })
+        .map(function(item) {
+          if (!isGgetTaskObject20260703_(item)) {
+            return item;
+          }
+
+          item.message = makeGgetMessageFromTemplate20260703_(item, config, template);
+          return item;
+        });
+
+      console.log('GGET SNS filtered count: ' + filtered.length);
+      return filtered;
+    }
+
+    return value.map(function(item) {
+      return filterAndRewriteGgetSnsTasks20260703_(item, config, template);
+    });
+  }
+
+  if (value && typeof value === 'object') {
+    Object.keys(value).forEach(function(key) {
+      value[key] = filterAndRewriteGgetSnsTasks20260703_(value[key], config, template);
+    });
+  }
+
+  return value;
+}
+
+
+/**
+ * BotKunが生成した依頼データかどうか判定
  */
 function isGgetTaskObject20260703_(obj) {
   return obj
@@ -75,57 +105,26 @@ function isGgetTaskObject20260703_(obj) {
 
 
 /**
- * SNS依頼用message
+ * カテゴリー列だけを見てSNS案件か判定
  */
-function makeGgetSnsMessage20260703_(task, config) {
-  const oldMessage = task.message || '';
-  const toPrefix = extractGgetToPrefix20260703_(oldMessage);
+function isGgetSnsTask20260703_(task, config) {
+  const category = getGgetValueByHeader20260703_(task, config, 'カテゴリー');
 
-  const template = `お疲れ様です(coffee)
-SNS関連の依頼が届きました。下記のご対応をお願いいたします。
-[info][title]【{依頼番号}】〆{社内締切}[/title]
-{カテゴリー}
+  console.log('category check: ' + category);
 
-{投稿日時}
-{社外シート}
-{備考}
-[/info]
-[code]BNE【GGET_SNS補助】【海外】SNS運用[/code]
-
-よろしくお願いいたします。`;
-
-  return toPrefix + fillGgetTemplate20260703_(template, task, config);
+  return /SNS|ＳＮＳ/i.test(category || '');
 }
 
 
 /**
- * 通常依頼用message
- * 資料翻訳などはこちら
+ * 指定テンプレートから展開messageを作成
  */
-function makeGgetNormalMessage20260703_(task, config) {
+function makeGgetMessageFromTemplate20260703_(task, config, template) {
   const oldMessage = task.message || '';
+
+  // 既存message先頭の[To:xxxx]だけ残す
   const toPrefix = extractGgetToPrefix20260703_(oldMessage);
 
-  const template = `お疲れ様です(coffee)
-下記のご対応をお願いいたします。
-[info][title]【{依頼番号}】〆{社内締切}[/title]
-{カテゴリー}
-
-{社外シート}
-{備考}
-[/info]
-[code]BNE【GGET_SNS補助】【海外】SNS運用[/code]
-
-よろしくお願いいたします。`;
-
-  return toPrefix + fillGgetTemplate20260703_(template, task, config);
-}
-
-
-/**
- * テンプレート内の {列名} を rawArray の値で置換
- */
-function fillGgetTemplate20260703_(template, task, config) {
   let message = template;
   const variablesToSearch = template.match(/(?<={)(.*?)(?=})/g) || [];
 
@@ -140,25 +139,41 @@ function fillGgetTemplate20260703_(template, task, config) {
       value = formatGgetDate20260703_(value);
     }
 
+    if (typeof value === 'string' && isGgetDateString20260703_(value)) {
+      value = formatGgetDate20260703_(new Date(value));
+    }
+
     message = message.replaceAll('{' + headerName + '}', value);
   });
 
-  return message;
+  return toPrefix + message;
 }
 
 
 /**
- * 既存message先頭の [To:xxxx] 群を保持する
+ * 既存message先頭の[To:xxxx]行だけを保持する
  */
 function extractGgetToPrefix20260703_(message) {
-  const greeting = 'お疲れ様です(coffee)';
-  const index = message.indexOf(greeting);
-
-  if (index === -1) {
+  if (!message) {
     return '';
   }
 
-  return message.substring(0, index);
+  const lines = message.split('\n');
+  const toLines = [];
+
+  for (const line of lines) {
+    if (/^\[To:\d+\]/.test(line)) {
+      toLines.push(line);
+    } else {
+      break;
+    }
+  }
+
+  if (toLines.length === 0) {
+    return '';
+  }
+
+  return toLines.join('\n') + '\n';
 }
 
 
@@ -187,7 +202,7 @@ function getGgetValueByHeader20260703_(task, config, headerName) {
 
 
 /**
- * 日付を m/d(曜) HH:mm 形式にする
+ * Date型を m/d(曜) HH:mm に変換
  */
 function formatGgetDate20260703_(date) {
   let dateStr = `${date.getMonth() + 1}/${date.getDate()}`;
@@ -201,4 +216,19 @@ function formatGgetDate20260703_(date) {
   dateStr += minutes.length === 1 ? '0' + minutes : minutes;
 
   return dateStr;
+}
+
+
+/**
+ * Date文字列かどうか判定
+ */
+function isGgetDateString20260703_(value) {
+  if (!value) {
+    return false;
+  }
+
+  const date = new Date(value);
+
+  return !isNaN(date.getTime())
+    && /GMT|標準時|^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(value);
 }

@@ -1,0 +1,101 @@
+function applyGgetSnsTenkaiOverride_(parameters, botKun) {
+  const config = botKun.pj.config.data;
+
+  if (!parameters) {
+    return parameters;
+  }
+
+  // parameters 本身可能是数组，也可能是 { tasks: [...] } 形式，所以两种都兼容
+  const tasks = Array.isArray(parameters) ? parameters : parameters.tasks;
+
+  if (!tasks || !Array.isArray(tasks)) {
+    console.warn('GGET SNS override skipped: tasks not found');
+    return parameters;
+  }
+
+  tasks.forEach(function(task) {
+    const category = getGgetTaskValue_(task, config, 'カテゴリー');
+
+    // カテゴリーに SNS / ＳＮＳ が含まれない場合は何もしない
+    if (!/SNS|ＳＮＳ/i.test(category || '')) {
+      return;
+    }
+
+    // SNS依頼だけ展開文を差し替える
+    task.message = makeGgetSnsTenkaiMessage_(task, botKun);
+  });
+
+  return parameters;
+}
+
+function makeGgetSnsTenkaiMessage_(task, botKun) {
+  const config = botKun.pj.config.data;
+
+  const template = `お疲れ様です(coffee)
+SNS関連の依頼が届きました。下記のご対応をお願いいたします。
+[info][title]【{依頼番号}】〆{社内締切}[/title]
+{カテゴリー}
+
+{投稿日時}
+{社外シート}
+{備考}
+[/info]
+[code]BNE【GGET_SNS補助】【海外】SNS運用[/code]
+
+よろしくお願いいたします。`;
+
+  let message = template;
+  const variablesToSearch = template.match(/(?<={)(.*?)(?=})/g) || [];
+
+  variablesToSearch.forEach(function(headerName) {
+    let value = getGgetTaskValue_(task, config, headerName);
+
+    if (value === null || value === undefined) {
+      value = '';
+    }
+
+    if (value instanceof Date) {
+      value = formatGgetDate_(value);
+    }
+
+    if (headerName === '備考' && value !== '') {
+      value = `※備考：${value}`;
+    }
+
+    message = message.replaceAll(`{${headerName}}`, value);
+  });
+
+  return message;
+}
+
+function getGgetTaskValue_(task, config, headerName) {
+  if (!task || !config || !config.currentHeaders) {
+    return '';
+  }
+
+  const colIndex = config.currentHeaders.indexOf(headerName);
+
+  if (colIndex === -1) {
+    return `⚠️不正常な列名 : 「${headerName}」⚠️`;
+  }
+
+  if (!task.rawArray) {
+    return '';
+  }
+
+  return task.rawArray[colIndex];
+}
+
+function formatGgetDate_(date) {
+  let dateStr = `${date.getMonth() + 1}/${date.getDate()}`;
+  dateStr += `(${['日','月','火','水','木','金','土'][date.getDay()]}) `;
+
+  let hours = date.getHours().toString();
+  let minutes = date.getMinutes().toString();
+
+  dateStr += hours.length === 1 ? '0' + hours : hours;
+  dateStr += ':';
+  dateStr += minutes.length === 1 ? '0' + minutes : minutes;
+
+  return dateStr;
+}

@@ -1,29 +1,56 @@
 function applyGgetSnsTenkaiOverride_(parameters, botKun) {
   const config = botKun.pj.config.data;
 
+  console.log('===== GGET SNS override start =====');
+
   if (!parameters) {
+    console.log('parameters is empty');
     return parameters;
   }
 
-  // parameters 本身可能是数组，也可能是 { tasks: [...] } 形式，所以两种都兼容
+  console.log('parameters type: ' + (Array.isArray(parameters) ? 'array' : typeof parameters));
+
   const tasks = Array.isArray(parameters) ? parameters : parameters.tasks;
 
   if (!tasks || !Array.isArray(tasks)) {
-    console.warn('GGET SNS override skipped: tasks not found');
+    console.warn('tasks not found');
+    console.log(JSON.stringify(parameters, null, 2));
     return parameters;
   }
 
-  tasks.forEach(function(task) {
-    const category = getGgetTaskValue_(task, config, 'カテゴリー');
+  console.log('tasks length: ' + tasks.length);
 
-    // カテゴリーに SNS / ＳＮＳ が含まれない場合は何もしない
-    if (!/SNS|ＳＮＳ/i.test(category || '')) {
+  tasks.forEach(function(task, index) {
+    console.log('----- task index: ' + index + ' -----');
+
+    if (!task.rawArray) {
+      console.log('task.rawArray not found');
+      console.log(JSON.stringify(task, null, 2));
       return;
     }
 
-    // SNS依頼だけ展開文を差し替える
+    console.log('currentHeaders: ' + JSON.stringify(config.currentHeaders));
+    console.log('rawArray: ' + JSON.stringify(task.rawArray));
+
+    const category = getGgetTaskValue_(task, config, 'カテゴリー');
+    console.log('category by header カテゴリー: ' + category);
+
+    // 万一 header 名称で取れない場合、rawArray 全体から SNS を探す
+    const rawText = task.rawArray.join(' ');
+    const hasSnsInRawArray = /SNS|ＳＮＳ/i.test(rawText);
+    console.log('has SNS in rawArray: ' + hasSnsInRawArray);
+
+    if (!hasSnsInRawArray) {
+      console.log('SNS not found, skipped');
+      return;
+    }
+
+    console.log('SNS override applied');
+
     task.message = makeGgetSnsTenkaiMessage_(task, botKun);
   });
+
+  console.log('===== GGET SNS override end =====');
 
   return parameters;
 }
@@ -69,17 +96,13 @@ SNS関連の依頼が届きました。下記のご対応をお願いいたし�
 }
 
 function getGgetTaskValue_(task, config, headerName) {
-  if (!task || !config || !config.currentHeaders) {
+  if (!task || !config || !config.currentHeaders || !task.rawArray) {
     return '';
   }
 
   const colIndex = config.currentHeaders.indexOf(headerName);
 
   if (colIndex === -1) {
-    return `⚠️不正常な列名 : 「${headerName}」⚠️`;
-  }
-
-  if (!task.rawArray) {
     return '';
   }
 

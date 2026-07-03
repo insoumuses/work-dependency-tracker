@@ -1,20 +1,38 @@
+// create messages
+// function called from the client side (see clientScript)
 function getTenkaiParams () {
   console.warn('LOADING TENKAI PARAMS');
   console.time('Loading message');
 
-  let botKun = BotKun.summon(magicIncantation)
-  botKun.loadProject()
+  let botKun = BotKun.summon(magicIncantation);
+  botKun.loadProject();
 
-  let parameters = botKun.pj.tenkai.makeTenkaiParams(3)
+  let parameters = botKun.pj.tenkai.makeTenkaiParams(3);
 
-  console.log('★★ before GGET override ★★')
+  console.log('★★ GGET CUSTOM START ★★');
 
-  parameters = applyGgetSnsTenkaiOverride_(parameters, botKun)
+  parameters = ggetSnsOverrideForIraiKanri20260703_(parameters, botKun);
 
-  console.log('★★ after GGET override ★★')
+  console.log('★★ GGET CUSTOM END ★★');
 
-  console.log(JSON.stringify(parameters, null, 2))
+  console.log(JSON.stringify(parameters, null, 2));
 
-  console.timeEnd('Loading message')
-  return JSON.stringify(parameters)
+  console.timeEnd('Loading message');
+  return JSON.stringify(parameters);
+}
+
+function ggetSnsOverrideForIraiKanri20260703_(parameters, botKun) {
+  console.log('★★★★★ ggetSnsOverrideForIraiKanri20260703_ CALLED ★★★★★');
+
+  console.log('parameters exists: ' + !!parameters);
+  console.log('parameters is array: ' + Array.isArray(parameters));
+  console.log('parameters type: ' + typeof parameters);
+
+  if (parameters) {
+    console.log('parameters keys: ' + Object.keys(parameters).join(', '));
+    console.log('parameters preview:');
+    console.log(JSON.stringify(parameters, null, 2).slice(0, 5000));
+  }
+
+  return parameters;
 }

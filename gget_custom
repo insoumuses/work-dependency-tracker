@@ -1,30 +1,73 @@
-function makeGgetMessageFromTemplate20260703_(task, config, template) {
-  const oldMessage = task.message || '';
+function ggetTenkaiModeOverride20260703_(parameters, botKun) {
+  const config = botKun.pj.config.data;
+  const activeTemplate = getGgetActiveTemplate20260703_(config);
 
-  const toPrefix = extractGgetToPrefix20260703_(oldMessage);
+  const isSnsMode = /SNS関連の依頼が届きました/.test(activeTemplate || '');
 
-  let message = template;
-  const variablesToSearch = template.match(/(?<={)(.*?)(?=})/g) || [];
+  console.log('GGET SNS mode: ' + isSnsMode);
+  console.log('activeTemplate preview: ' + String(activeTemplate).slice(0, 200));
 
-  variablesToSearch.forEach(function(headerName) {
-    let value = getGgetValueByHeader20260703_(task, config, headerName);
+  if (isSnsMode) {
+    console.log('SNS mode: filter SNS tasks only');
+    return rewriteGgetTasksByTemplate20260703_(parameters, config, activeTemplate, true);
+  }
 
-    if (value === null || value === undefined) {
-      value = '';
+  console.log('Normal mode: keep all tasks');
+  return rewriteGgetTasksByTemplate20260703_(parameters, config, activeTemplate, false);
+}
+
+
+
+function rewriteGgetTasksByTemplate20260703_(value, config, template, snsOnly) {
+  if (Array.isArray(value)) {
+    const hasTaskObjects = value.some(function(item) {
+      return isGgetTaskObject20260703_(item);
+    });
+
+    if (hasTaskObjects) {
+      console.log('Task array found. snsOnly = ' + snsOnly);
+      console.log('Before task count: ' + value.length);
+
+      const filtered = value
+        .filter(function(item) {
+          if (!isGgetTaskObject20260703_(item)) {
+            return true;
+          }
+
+          const category = getGgetValueByHeader20260703_(item, config, 'カテゴリー');
+          const requestNo = getGgetValueByHeader20260703_(item, config, '依頼番号');
+
+          console.log('check task: ' + requestNo + ' / ' + category);
+
+          if (!snsOnly) {
+            return true;
+          }
+
+          return isGgetSnsTask20260703_(item, config);
+        })
+        .map(function(item) {
+          if (!isGgetTaskObject20260703_(item)) {
+            return item;
+          }
+
+          item.message = makeGgetMessageFromTemplate20260703_(item, config, template);
+          return item;
+        });
+
+      console.log('After task count: ' + filtered.length);
+      return filtered;
     }
 
-    if (value instanceof Date) {
-      value = formatGgetDate20260703_(value);
-    }
+    return value.map(function(item) {
+      return rewriteGgetTasksByTemplate20260703_(item, config, template, snsOnly);
+    });
+  }
 
-    if (typeof value === 'string' && isGgetDateString20260703_(value)) {
-      value = formatGgetDate20260703_(new Date(value));
-    }
+  if (value && typeof value === 'object') {
+    Object.keys(value).forEach(function(key) {
+      value[key] = rewriteGgetTasksByTemplate20260703_(value[key], config, template, snsOnly);
+    });
+  }
 
-    message = message.replaceAll('{' + headerName + '}', value);
-  });
-
-  console.log('rewritten message preview: ' + message.slice(0, 200));
-
-  return toPrefix + message;
+  return value;
 }

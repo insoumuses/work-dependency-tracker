@@ -1,0 +1,62 @@
+/**
+ * SNS関連依頼の判定。
+ *
+ * 判断基準：
+ *   「投稿日時」列に内容がある場合 → SNS関連依頼
+ *   「投稿日時」列が空の場合     → SNS以外の依頼
+ *
+ * ※ カテゴリー名では判断しない。
+ * ※ 202607などのシート名は見ない。BotKunが取得した現在の行データだけで判定する。
+ */
+function ggetIsSnsTaskV7_20260707_(task, config) {
+  const postDateValue = ggetGetValueByHeaderLooseV7_20260707_(task, config, [
+    '投稿日時',
+    '投稿時間',
+    '投稿日',
+    '投稿日・時間'
+  ]);
+
+  const hasPostDate = ggetHasMeaningfulValueV7_20260707_(postDateValue);
+
+  const requestNo = ggetGetValueByHeaderV7_20260707_(task, config, '依頼番号', true);
+  const category  = ggetGetValueByHeaderV7_20260707_(task, config, 'カテゴリー', true);
+
+  console.log(
+    '[' + requestNo + '] SNS判定: ' +
+    'category="' + category + '", ' +
+    '投稿日時="' + postDateValue + '", ' +
+    'isSns=' + hasPostDate
+  );
+
+  return hasPostDate;
+}
+
+
+/**
+ * 空欄・未記入系を除外して、実質的な値があるか判定する。
+ */
+function ggetHasMeaningfulValueV7_20260707_(value) {
+  if (value === null || value === undefined) return false;
+
+  const text = String(value)
+    .replace(/\r/g, '')
+    .replace(/\n/g, '')
+    .replace(/\t/g, '')
+    .replace(/\s/g, '')
+    .replace(/　/g, '')
+    .trim();
+
+  if (!text) return false;
+
+  // 念のため、未記入系は「値なし」と扱う
+  if (
+    text === '⚠️未記入⚠️' ||
+    text === '未記入' ||
+    text === '-' ||
+    text === 'ー'
+  ) {
+    return false;
+  }
+
+  return true;
+}

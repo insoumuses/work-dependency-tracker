@@ -1,15 +1,15 @@
 /**
  * GGET依頼管理表専用：
- * 担当者が設定!A2にテンプレートを貼り付けなくても、
  * カテゴリーを見て通常依頼 / SNS依頼のテンプレートを自動で切り替える。
  *
  * 通常依頼：
- *   「依頼展開定型文」A2:A10 のテンプレートを使用
+ *   「依頼展開定型文」シート内の [ver.1] / 【ver.1】などから自動判定
  *
  * SNS依頼：
- *   「依頼展開定型文」A11:A17 のテンプレートを使用
+ *   「依頼展開定型文」シート内で SNS / 投稿日時 / SNS翻訳 / SNS投稿 を含むブロックを使用
  *
- * ※ 【ver.1】/【ver.2】などの行は展開文に含めない。
+ * ※ [ver.1] / 【ver.1】などの行は展開文に含めない。
+ * ※ テンプレート取得に失敗した場合は、旧messageを保持してToだけになる事故を防ぐ。
  */
 function ggetModeRewriteV6_20260707_(parameters, botKun) {
   const config = botKun.pj.config.data;
@@ -25,56 +25,114 @@ function ggetModeRewriteV6_20260707_(parameters, botKun) {
 
 
 /**
- * 「依頼展開定型文」シートから通常テンプレート / SNSテンプレートを読む。
+ * 「依頼展開定型文」シートからテンプレートを読む。
  *
- * A2:A10  → 通常テンプレート
- * A11:A17 → SNSテンプレート
+ * A列全体を読み、
+ * [ver.1] / 【ver.1】などの見出しでブロック分割する。
+ *
+ * SNSを含むブロック → SNSテンプレート
+ * それ以外の最初のブロック → 通常テンプレート
  */
 function ggetReadTenkaiTemplatesV6_20260707_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
   const sheet =
     ss.getSheetByName('依頼展開定型文') ||
+    ss.getSheetByName('テンプレート') ||
     ss.getSheetByName('設定');
 
   if (!sheet) {
-    console.warn('依頼展開定型文 sheet not found');
+    console.warn('template sheet not found');
     return {
       normal: '',
       sns: ''
     };
   }
 
+  const lastRow = sheet.getLastRow();
+
+  if (!lastRow || lastRow < 1) {
+    console.warn('template sheet is empty');
+    return {
+      normal: '',
+      sns: ''
+    };
+  }
+
+  const values = sheet.getRange(1, 1, lastRow, 1).getDisplayValues();
+
+  const lines = [];
+
+  values.forEach(function(row) {
+    const text = row[0];
+
+    if (text === null || text === undefined || String(text).trim() === '') {
+      return;
+    }
+
+    String(text).split('\n').forEach(function(line) {
+      lines.push(line);
+    });
+  });
+
+  const blocks = [];
+  let current = [];
+
+  lines.forEach(function(line) {
+    const trimmed = String(line).trim();
+
+    if (/^[【\[]ver\.\d+[】\]]$/i.test(trimmed)) {
+      if (current.length > 0) {
+        blocks.push(current.join('\n'));
+      }
+
+      current = [];
+      return;
+    }
+
+    current.push(line);
+  });
+
+  if (current.length > 0) {
+    blocks.push(current.join('\n'));
+  }
+
+  const cleanedBlocks = blocks
+    .map(function(block) {
+      return ggetCleanTemplateV6_20260707_(block);
+    })
+    .filter(function(block) {
+      return String(block).trim() !== '';
+    });
+
+  let normalTemplate = '';
+  let snsTemplate = '';
+
+  cleanedBlocks.forEach(function(block) {
+    if (/SNS|ＳＮＳ|投稿日時|SNS翻訳|SNS投稿/i.test(block)) {
+      if (!snsTemplate) {
+        snsTemplate = block;
+      }
+    } else {
+      if (!normalTemplate) {
+        normalTemplate = block;
+      }
+    }
+  });
+
+  console.log('template blocks count = ' + cleanedBlocks.length);
+  console.log('normal template = ' + String(normalTemplate).slice(0, 200));
+  console.log('sns template = ' + String(snsTemplate).slice(0, 200));
+
   return {
-    normal: ggetCleanTemplateV6_20260707_(
-      ggetReadMergedTemplateRangeV6_20260707_(sheet, 'A2:A10')
-    ),
-    sns: ggetCleanTemplateV6_20260707_(
-      ggetReadMergedTemplateRangeV6_20260707_(sheet, 'A11:A17')
-    )
+    normal: normalTemplate,
+    sns: snsTemplate
   };
 }
 
 
 /**
- * 結合セルでも読めるように、範囲内の表示値をすべて連結する。
- */
-function ggetReadMergedTemplateRangeV6_20260707_(sheet, rangeA1) {
-  const values = sheet.getRange(rangeA1).getDisplayValues();
-
-  return values
-    .map(function(row) {
-      return row[0];
-    })
-    .filter(function(value) {
-      return value !== null && value !== undefined && String(value) !== '';
-    })
-    .join('\n');
-}
-
-
-/**
- * 【ver.1】/【ver.2】などの行を削除する。
+ * [ver.1] / 【ver.1】などの行を削除する。
  */
 function ggetCleanTemplateV6_20260707_(text) {
   if (!text) {
@@ -84,7 +142,7 @@ function ggetCleanTemplateV6_20260707_(text) {
   let lines = String(text).split('\n');
 
   lines = lines.filter(function(line) {
-    return !/^【ver\.\d+】\s*$/.test(String(line).trim());
+    return !/^[【\[]ver\.\d+[】\]]$/i.test(String(line).trim());
   });
 
   return lines.join('\n').replace(/^\n+/, '').replace(/\n+$/, '');
@@ -180,6 +238,11 @@ function ggetMakeMessageFromTemplateV6_20260707_(task, config, template) {
   const toPrefix = ggetExtractToPrefixV6_20260707_(oldMessage);
 
   let message = template || '';
+
+  if (!message) {
+    console.warn('template is empty. keep old message.');
+    return oldMessage;
+  }
 
   const variablesToSearch = message.match(/(?<={)([^{}]+)(?=})/g) || [];
 

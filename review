@@ -7,30 +7,11 @@ function getTenkaiParams () {
   let botKun = BotKun.summon(magicIncantation);
   botKun.loadProject();
 
+  // GGET用：
+  // 3種類の定型文を使って展開するため、まずは3件取得
   let parameters = botKun.pj.tenkai.makeTenkaiParams(3);
 
-  parameters = ggetModeRewriteV2_20260703_(parameters, botKun);
-
-  console.log(JSON.stringify(parameters, null, 2));
-
-  console.timeEnd('Loading message');
-  return JSON.stringify(parameters);
-}
-
-// create messages
-// function called from the client side (see clientScript)
-function getTenkaiParams () {
-  console.warn('LOADING TENKAI PARAMS');
-  console.time('Loading message');
-
-  let botKun = BotKun.summon(magicIncantation);
-  botKun.loadProject();
-
-  // GGET用：
-  // SNSモードで絞り込んでも3件残せるように、最初は多めに取得する
-  let parameters = botKun.pj.tenkai.makeTenkaiParams(10);
-
-  parameters = ggetModeRewriteV4_20260707_(parameters, botKun);
+  parameters = ggetModeRewriteV5_20260707_(parameters, botKun);
 
   console.log(JSON.stringify(parameters, null, 2));
 
@@ -41,107 +22,127 @@ function getTenkaiParams () {
 
 /**
  * GGET依頼管理表専用：
- * 設定!A2 の内容で通常モード / SNSモードを切り替える
+ * 担当者が設定!A2へテンプレートをコピーしなくても、
+ * 「依頼展開定型文」シート上の3種類のテンプレートを使って展開する。
  *
- * 通常モード：
- *   SNS以外も含めて最新の依頼を残す
- *   設定!A2 のテンプレートで message を作り直す
+ * A2:A10  → 1件目
+ * A11:A17 → 2件目
+ * A20:A24 → 3件目
  *
- * SNSモード：
- *   カテゴリーに SNS / ＳＮＳ が含まれる案件だけ残す
- *   設定!A2 のSNSテンプレートで message を作り直す
+ * ※ 【ver.1】などの行は展開メッセージには含めない。
  */
-function ggetModeRewriteV4_20260707_(parameters, botKun) {
+function ggetModeRewriteV5_20260707_(parameters, botKun) {
   const config = botKun.pj.config.data;
-  const activeTemplate = ggetReadSettingA2TemplateV4_20260707_();
+  const templates = ggetReadTenkaiTemplatesV5_20260707_();
 
-  // 設定!A2 にこの文言がある場合だけSNSモードにする
-  const isSnsMode = /SNS関連の依頼が届きました/.test(activeTemplate || '');
+  console.log('========== GGET TEMPLATE CHECK ==========');
+  console.log(JSON.stringify(templates, null, 2));
+  console.log('=========================================');
 
-  console.log('========== GGET MODE CHECK ==========');
-  console.log('isSnsMode = ' + isSnsMode);
-  console.log('template preview = ' + String(activeTemplate).slice(0, 300));
-  console.log('=====================================');
-
-  return ggetRewriteParamsV4_20260707_(parameters, config, activeTemplate, isSnsMode);
+  return ggetRewriteParamsV5_20260707_(parameters, config, templates);
 }
 
 
 /**
- * 設定!A2 を直接読む
- * config.tenkaiText はキャッシュっぽく残る可能性があるので使わない
+ * 「依頼展開定型文」シートから3種類のテンプレートを読む。
+ * 【ver.1】/【ver.2】/【ver.3】 の行は削除する。
  */
-function ggetReadSettingA2TemplateV4_20260707_() {
+function ggetReadTenkaiTemplatesV5_20260707_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('設定');
+
+  // シート名が違う場合に備えて、候補を順番に見る
+  const sheet =
+    ss.getSheetByName('依頼展開定型文') ||
+    ss.getSheetByName('設定');
 
   if (!sheet) {
-    console.warn('設定 sheet not found');
+    console.warn('依頼展開定型文 sheet not found');
+    return ['', '', ''];
+  }
+
+  const ranges = [
+    'A2:A10',
+    'A11:A17',
+    'A20:A24'
+  ];
+
+  return ranges.map(function(rangeA1) {
+    const values = sheet.getRange(rangeA1).getDisplayValues()
+      .map(function(row) {
+        return row[0];
+      })
+      .join('\n');
+
+    return ggetCleanTemplateV5_20260707_(values);
+  });
+}
+
+
+/**
+ * テンプレート先頭の【ver.1】などを削除し、
+ * 余計な空行を軽く整える。
+ */
+function ggetCleanTemplateV5_20260707_(text) {
+  if (!text) {
     return '';
   }
 
-  return sheet.getRange('A2').getValue();
+  let lines = String(text).split('\n');
+
+  // 空行を保ちつつ、ver行だけ削除
+  lines = lines.filter(function(line) {
+    return !/^【ver\.\d+】\s*$/.test(String(line).trim());
+  });
+
+  return lines.join('\n').replace(/^\n+/, '').replace(/\n+$/, '');
 }
 
 
 /**
- * parameters 全体を再帰的に見て、依頼データ配列を処理する
+ * parameters 全体を再帰的に見て、依頼データ配列を処理する。
  *
- * 注意：
- * parameters の中にはUI側で必要な情報も入っている可能性があるため、
- * task object 以外は削除しない。
+ * 依頼データが見つかったら、先頭から最大3件に対して
+ * 1件目 → template[0]
+ * 2件目 → template[1]
+ * 3件目 → template[2]
+ * を適用する。
  */
-function ggetRewriteParamsV4_20260707_(value, config, template, snsMode) {
+function ggetRewriteParamsV5_20260707_(value, config, templates) {
   if (Array.isArray(value)) {
     const hasTaskObjects = value.some(function(item) {
-      return ggetIsTaskObjectV4_20260707_(item);
+      return ggetIsTaskObjectV5_20260707_(item);
     });
 
     if (hasTaskObjects) {
       console.log('Task array found. before count = ' + value.length);
 
+      const result = [];
       let taskCount = 0;
 
-      const result = value
-        .filter(function(item) {
-          // task object 以外はUI側で必要な可能性があるので残す
-          if (!ggetIsTaskObjectV4_20260707_(item)) {
-            return true;
-          }
+      value.forEach(function(item) {
+        // task object 以外はUI側で必要な可能性があるので残す
+        if (!ggetIsTaskObjectV5_20260707_(item)) {
+          result.push(item);
+          return;
+        }
 
-          const requestNo = ggetGetValueByHeaderV4_20260707_(item, config, '依頼番号');
-          const category = ggetGetValueByHeaderV4_20260707_(item, config, 'カテゴリー');
+        // 表示する依頼は最大3件まで
+        if (taskCount >= 3) {
+          const requestNo = ggetGetValueByHeaderV5_20260707_(item, config, '依頼番号');
+          console.log('filtered by count limit: ' + requestNo);
+          return;
+        }
 
-          console.log('task check: ' + requestNo + ' / ' + category);
+        const template = templates[taskCount] || templates[0] || '';
+        item.message = ggetMakeMessageFromTemplateV5_20260707_(item, config, template);
 
-          // SNSモードの場合だけ、SNS以外の依頼を除外する
-          if (snsMode && !ggetIsSnsTaskV4_20260707_(item, config)) {
-            console.log('filtered by SNS mode: ' + requestNo + ' / ' + category);
-            return false;
-          }
+        if (item.message === null || item.message === undefined) {
+          item.message = '';
+        }
 
-          // 表示する依頼は最大3件まで
-          if (taskCount >= 3) {
-            console.log('filtered by count limit: ' + requestNo + ' / ' + category);
-            return false;
-          }
-
-          taskCount++;
-          return true;
-        })
-        .map(function(item) {
-          if (!ggetIsTaskObjectV4_20260707_(item)) {
-            return item;
-          }
-
-          item.message = ggetMakeMessageFromTemplateV4_20260707_(item, config, template);
-
-          if (item.message === null || item.message === undefined) {
-            item.message = '';
-          }
-
-          return item;
-        });
+        result.push(item);
+        taskCount++;
+      });
 
       console.log('Task array after count = ' + result.length);
       console.log('Task count after filter = ' + taskCount);
@@ -150,13 +151,13 @@ function ggetRewriteParamsV4_20260707_(value, config, template, snsMode) {
     }
 
     return value.map(function(item) {
-      return ggetRewriteParamsV4_20260707_(item, config, template, snsMode);
+      return ggetRewriteParamsV5_20260707_(item, config, templates);
     });
   }
 
   if (value && typeof value === 'object') {
     Object.keys(value).forEach(function(key) {
-      value[key] = ggetRewriteParamsV4_20260707_(value[key], config, template, snsMode);
+      value[key] = ggetRewriteParamsV5_20260707_(value[key], config, templates);
     });
   }
 
@@ -165,12 +166,10 @@ function ggetRewriteParamsV4_20260707_(value, config, template, snsMode) {
 
 
 /**
- * BotKun が生成した依頼データかどうか判定
- *
- * message が未生成の場合もあるため、
- * rawArray があれば依頼データとして扱う。
+ * BotKun が生成した依頼データかどうか判定。
+ * message が未生成の場合もあるため、rawArray があれば依頼データとして扱う。
  */
-function ggetIsTaskObjectV4_20260707_(obj) {
+function ggetIsTaskObjectV5_20260707_(obj) {
   return obj
     && typeof obj === 'object'
     && Array.isArray(obj.rawArray);
@@ -178,20 +177,15 @@ function ggetIsTaskObjectV4_20260707_(obj) {
 
 
 /**
- * カテゴリー列だけを見てSNS案件か判定
+ * 指定テンプレートから message を作成。
+ *
+ * 注意：
+ * {PJコード} と {社内締切} は、BotKun が元々生成した message から優先して復元する。
+ * これにより、PJコードの自動取得や qtmeta 付きの日付形式を壊さない。
  */
-function ggetIsSnsTaskV4_20260707_(task, config) {
-  const category = ggetGetValueByHeaderV4_20260707_(task, config, 'カテゴリー');
-  return /SNS|ＳＮＳ/i.test(category || '');
-}
-
-
-/**
- * 指定テンプレートから message を作成
- */
-function ggetMakeMessageFromTemplateV4_20260707_(task, config, template) {
+function ggetMakeMessageFromTemplateV5_20260707_(task, config, template) {
   const oldMessage = task.message || '';
-  const toPrefix = ggetExtractToPrefixV4_20260707_(oldMessage);
+  const toPrefix = ggetExtractToPrefixV5_20260707_(oldMessage);
 
   let message = template || '';
 
@@ -200,12 +194,31 @@ function ggetMakeMessageFromTemplateV4_20260707_(task, config, template) {
   variablesToSearch.forEach(function(headerName) {
     let value = '';
 
-    // 旧S列の展開メッセージは使わない。
-    // ここを読むと、表格函数の結果が混ざって重複する可能性があるため。
-    if (headerName === '展開メッセージ') {
+    if (headerName === 'PJコード') {
+      // PJコードは表の列ではなくBotKun側で自動生成されている可能性があるため、
+      // 旧messageの[code]...[/code]から優先取得する。
+      value = ggetExtractCodeBlockV5_20260707_(oldMessage);
+
+      if (!value) {
+        value = ggetGetValueByHeaderV5_20260707_(task, config, headerName);
+      }
+
+    } else if (headerName === '社内締切') {
+      // 社内締切はqtmeta付き形式を保持したいため、
+      // 旧messageの title 内にある「〆」以降を優先取得する。
+      value = ggetExtractDeadlineFromOldMessageV5_20260707_(oldMessage);
+
+      if (!value) {
+        value = ggetGetValueByHeaderV5_20260707_(task, config, headerName);
+      }
+
+    } else if (headerName === '展開メッセージ') {
+      // 旧S列の展開メッセージは使わない。
+      // ここを読むと、表格函数の結果が混ざって重複する可能性があるため。
       value = '';
+
     } else {
-      value = ggetGetValueByHeaderV4_20260707_(task, config, headerName);
+      value = ggetGetValueByHeaderV5_20260707_(task, config, headerName);
     }
 
     if (value === null || value === undefined) {
@@ -213,11 +226,11 @@ function ggetMakeMessageFromTemplateV4_20260707_(task, config, template) {
     }
 
     if (value instanceof Date) {
-      value = ggetFormatDateV4_20260707_(value);
+      value = ggetFormatDateV5_20260707_(value);
     }
 
-    if (typeof value === 'string' && ggetIsDateStringV4_20260707_(value)) {
-      value = ggetFormatDateV4_20260707_(new Date(value));
+    if (typeof value === 'string' && ggetIsDateStringV5_20260707_(value)) {
+      value = ggetFormatDateV5_20260707_(new Date(value));
     }
 
     message = message.replaceAll('{' + headerName + '}', value);
@@ -230,7 +243,7 @@ function ggetMakeMessageFromTemplateV4_20260707_(task, config, template) {
 /**
  * 既存messageの先頭にある [To:xxxx] 行だけを残す
  */
-function ggetExtractToPrefixV4_20260707_(message) {
+function ggetExtractToPrefixV5_20260707_(message) {
   if (!message) {
     return '';
   }
@@ -255,9 +268,50 @@ function ggetExtractToPrefixV4_20260707_(message) {
 
 
 /**
+ * 旧messageから [code]...[/code] の中身を取得する。
+ * {PJコード} 復元用。
+ */
+function ggetExtractCodeBlockV5_20260707_(message) {
+  if (!message) {
+    return '';
+  }
+
+  const match = String(message).match(/\[code\]([\s\S]*?)\[\/code\]/);
+
+  if (!match) {
+    return '';
+  }
+
+  return match[1].trim();
+}
+
+
+/**
+ * 旧messageから title 内の「〆」以降を取得する。
+ * qtmeta付き日付を保持するため。
+ *
+ * 例：
+ * [info][title]【GG_260702_1】〆[qt][qtmeta aid=...][/qt][/title]
+ */
+function ggetExtractDeadlineFromOldMessageV5_20260707_(message) {
+  if (!message) {
+    return '';
+  }
+
+  const match = String(message).match(/〆([\s\S]*?)\[\/title\]/);
+
+  if (!match) {
+    return '';
+  }
+
+  return match[1].trim();
+}
+
+
+/**
  * header名から rawArray 内の値を取得
  */
-function ggetGetValueByHeaderV4_20260707_(task, config, headerName) {
+function ggetGetValueByHeaderV5_20260707_(task, config, headerName) {
   if (!task || !task.rawArray || !config || !config.currentHeaders) {
     return '';
   }
@@ -283,7 +337,7 @@ function ggetGetValueByHeaderV4_20260707_(task, config, headerName) {
 /**
  * Date型を m/d(曜) HH:mm に変換
  */
-function ggetFormatDateV4_20260707_(date) {
+function ggetFormatDateV5_20260707_(date) {
   let dateStr = `${date.getMonth() + 1}/${date.getDate()}`;
   dateStr += `(${['日','月','火','水','木','金','土'][date.getDay()]}) `;
 
@@ -301,7 +355,7 @@ function ggetFormatDateV4_20260707_(date) {
 /**
  * Date文字列かどうか判定
  */
-function ggetIsDateStringV4_20260707_(value) {
+function ggetIsDateStringV5_20260707_(value) {
   if (!value) {
     return false;
   }

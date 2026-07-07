@@ -1,0 +1,58 @@
+/**
+ * parameters 全体を再帰的に見て、依頼データ配列を処理する
+ */
+function ggetRewriteParamsV2_20260703_(value, config, template, snsMode) {
+  if (Array.isArray(value)) {
+    const hasTaskObjects = value.some(function(item) {
+      return ggetIsTaskObjectV2_20260703_(item);
+    });
+
+    if (hasTaskObjects) {
+      console.log('Task array found. before count = ' + value.length);
+
+      const taskItems = value
+        .filter(function(item) {
+          if (!ggetIsTaskObjectV2_20260703_(item)) {
+            return false;
+          }
+
+          const requestNo = ggetGetValueByHeaderV2_20260703_(item, config, '依頼番号');
+          const category = ggetGetValueByHeaderV2_20260703_(item, config, 'カテゴリー');
+
+          console.log('task check: ' + requestNo + ' / ' + category);
+
+          if (!snsMode) {
+            return true;
+          }
+
+          return ggetIsSnsTaskV2_20260703_(item, config);
+        })
+        .slice(0, 3)
+        .map(function(item) {
+          item.message = ggetMakeMessageFromTemplateV2_20260703_(item, config, template);
+
+          if (!item.message) {
+            item.message = '';
+          }
+
+          return item;
+        });
+
+      console.log('Task array after count = ' + taskItems.length);
+
+      return taskItems;
+    }
+
+    return value.map(function(item) {
+      return ggetRewriteParamsV2_20260703_(item, config, template, snsMode);
+    });
+  }
+
+  if (value && typeof value === 'object') {
+    Object.keys(value).forEach(function(key) {
+      value[key] = ggetRewriteParamsV2_20260703_(value[key], config, template, snsMode);
+    });
+  }
+
+  return value;
+}

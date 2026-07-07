@@ -10,10 +10,13 @@ function ggetRewriteParamsV2_20260703_(value, config, template, snsMode) {
     if (hasTaskObjects) {
       console.log('Task array found. before count = ' + value.length);
 
-      const taskItems = value
+      let taskCount = 0;
+
+      const result = value
         .filter(function(item) {
+          // task object 以外はUI側で必要な可能性があるので残す
           if (!ggetIsTaskObjectV2_20260703_(item)) {
-            return false;
+            return true;
           }
 
           const requestNo = ggetGetValueByHeaderV2_20260703_(item, config, '依頼番号');
@@ -21,26 +24,37 @@ function ggetRewriteParamsV2_20260703_(value, config, template, snsMode) {
 
           console.log('task check: ' + requestNo + ' / ' + category);
 
-          if (!snsMode) {
-            return true;
+          // SNSモードの場合はSNS案件だけ残す
+          if (snsMode && !ggetIsSnsTaskV2_20260703_(item, config)) {
+            return false;
           }
 
-          return ggetIsSnsTaskV2_20260703_(item, config);
+          // 表示する依頼は最大3件まで
+          if (taskCount >= 3) {
+            return false;
+          }
+
+          taskCount++;
+          return true;
         })
-        .slice(0, 3)
         .map(function(item) {
+          if (!ggetIsTaskObjectV2_20260703_(item)) {
+            return item;
+          }
+
           item.message = ggetMakeMessageFromTemplateV2_20260703_(item, config, template);
 
-          if (!item.message) {
+          if (item.message === null || item.message === undefined) {
             item.message = '';
           }
 
           return item;
         });
 
-      console.log('Task array after count = ' + taskItems.length);
+      console.log('Task array after count = ' + result.length);
+      console.log('Task count after filter = ' + taskCount);
 
-      return taskItems;
+      return result;
     }
 
     return value.map(function(item) {

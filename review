@@ -7,6 +7,25 @@ function getTenkaiParams () {
   let botKun = BotKun.summon(magicIncantation);
   botKun.loadProject();
 
+  let parameters = botKun.pj.tenkai.makeTenkaiParams(3);
+
+  parameters = ggetModeRewriteV2_20260703_(parameters, botKun);
+
+  console.log(JSON.stringify(parameters, null, 2));
+
+  console.timeEnd('Loading message');
+  return JSON.stringify(parameters);
+}
+
+// create messages
+// function called from the client side (see clientScript)
+function getTenkaiParams () {
+  console.warn('LOADING TENKAI PARAMS');
+  console.time('Loading message');
+
+  let botKun = BotKun.summon(magicIncantation);
+  botKun.loadProject();
+
   // GGET用：
   // SNSモードで絞り込んでも3件残せるように、最初は多めに取得する
   let parameters = botKun.pj.tenkai.makeTenkaiParams(10);

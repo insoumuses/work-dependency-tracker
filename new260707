@@ -1,25 +1,3 @@
-// create messages
-// function called from the client side (see clientScript)
-function getTenkaiParams () {
-  console.warn('LOADING TENKAI PARAMS');
-  console.time('Loading message');
-
-  var botKun = BotKun.summon(magicIncantation);
-  botKun.loadProject();
-
-  // 通常通り3件取得
-  var parameters = botKun.pj.tenkai.makeTenkaiParams(3);
-
-  // GGET用：SNS関連 / SNS以外 を自動切替
-  parameters = ggetModeRewriteSimple_20260707_(parameters, botKun);
-
-  console.log(JSON.stringify(parameters, null, 2));
-
-  console.timeEnd('Loading message');
-  return JSON.stringify(parameters);
-}
-
-
 /**
  * GGET依頼管理表専用・簡易版
  *
@@ -27,14 +5,84 @@ function getTenkaiParams () {
  *   カテゴリーに SNS / ＳＮＳ が含まれる → SNS関連テンプレート
  *   それ以外                         → 通常テンプレート
  *
- * ※ テンプレートシートは読まない
- * ※ 月別シート名は見ない
+ * テンプレート：
+ *   設定!A2:A10  → 通常テンプレート
+ *   設定!A11:A19 → SNSテンプレート
+ *   設定!A20:A28 → 予備テンプレート
+ *
  * ※ PJコードはBotKun既存の取得関数を優先して使う
  */
 function ggetModeRewriteSimple_20260707_(parameters, botKun) {
   var config = botKun.pj.config.data;
 
-  var templates = {
+  var templates = ggetReadTemplatesFromSettingSimple_20260707_();
+
+  console.log('========== GGET TEMPLATE AUTO MODE ==========');
+  console.log('normal template:\n' + templates.normal);
+  console.log('sns template:\n' + templates.sns);
+  console.log('spare template:\n' + templates.spare);
+  console.log('============================================');
+
+  return ggetRewriteSimple_20260707_(parameters, config, templates, botKun);
+}
+
+/**
+ * 設定シートからテンプレートを取得する。
+ *
+ * A2:A10  → 通常テンプレート
+ * A11:A19 → SNSテンプレート
+ * A20:A28 → 予備テンプレート
+ */
+function ggetReadTemplatesFromSettingSimple_20260707_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('設定');
+
+  if (!sheet) {
+    console.warn('設定シートが見つかりません。コード内のデフォルトテンプレートを使用します。');
+    return ggetDefaultTemplatesSimple_20260707_();
+  }
+
+  var normal = ggetReadTemplateRangeSimple_20260707_(sheet, 'A2:A10');
+  var sns    = ggetReadTemplateRangeSimple_20260707_(sheet, 'A11:A19');
+  var spare  = ggetReadTemplateRangeSimple_20260707_(sheet, 'A20:A28');
+
+  var defaults = ggetDefaultTemplatesSimple_20260707_();
+
+  return {
+    normal: normal || defaults.normal,
+    sns:    sns    || defaults.sns,
+    spare:  spare  || ''
+  };
+}
+
+
+/**
+ * 指定範囲の表示値をテンプレート文字列として取得する。
+ *
+ * 空行もある程度残す。
+ * ただし末尾の空行は削除する。
+ */
+function ggetReadTemplateRangeSimple_20260707_(sheet, rangeA1) {
+  var values = sheet.getRange(rangeA1).getDisplayValues();
+
+  var lines = values.map(function(row) {
+    return String(row[0] || '');
+  });
+
+  // 末尾の空行だけ削除
+  while (lines.length > 0 && String(lines[lines.length - 1]).trim() === '') {
+    lines.pop();
+  }
+
+  return lines.join('\n');
+}
+
+
+/**
+ * 設定シートから読めなかった場合のデフォルトテンプレート。
+ */
+function ggetDefaultTemplatesSimple_20260707_() {
+  return {
     normal:
 `お疲れ様です(coffee)
 下記のご対応をお願いいたします。
@@ -59,376 +107,5 @@ SNS関連の依頼が届きました。下記のご対応をお願いいたし�
 
 よろしくお願いいたします。`
   };
-
-  return ggetRewriteSimple_20260707_(parameters, config, templates, botKun);
 }
 
-
-/**
- * parameters 内の依頼データを探して message を書き換える。
- */
-function ggetRewriteSimple_20260707_(value, config, templates, botKun) {
-  if (Array.isArray(value)) {
-    return value.map(function(item) {
-      if (ggetIsTaskObjectSimple_20260707_(item)) {
-        var requestNo = ggetValueSimple_20260707_(item, config, '依頼番号');
-        var category  = ggetValueSimple_20260707_(item, config, 'カテゴリー');
-        var postDate  = ggetLooseValueSimple_20260707_(item, config, [
-          '投稿日時',
-          '投稿日',
-          '投稿時間'
-        ]);
-
-        var isSns = ggetIsSnsSimple_20260707_(item, config);
-        var template = isSns ? templates.sns : templates.normal;
-
-        console.log(
-          '[' + requestNo + '] category="' + category + '"' +
-          ' / 投稿日時="' + postDate + '"' +
-          ' / isSns=' + isSns
-        );
-
-        item.message = ggetMakeMessageSimple_20260707_(item, config, template, botKun);
-      } else {
-        item = ggetRewriteSimple_20260707_(item, config, templates, botKun);
-      }
-
-      return item;
-    });
-  }
-
-  if (value && typeof value === 'object') {
-    Object.keys(value).forEach(function(key) {
-      value[key] = ggetRewriteSimple_20260707_(value[key], config, templates, botKun);
-    });
-  }
-
-  return value;
-}
-
-
-/**
- * BotKunの依頼データ判定。
- */
-function ggetIsTaskObjectSimple_20260707_(obj) {
-  return obj && typeof obj === 'object' && Array.isArray(obj.rawArray);
-}
-
-
-/**
- * SNS関連判定。
- *
- * 今回は「①SNS関連」と「②SNS以外」の2分類。
- * そのため、SNS翻訳チェックもSNS関連として扱う。
- */
-function ggetIsSnsSimple_20260707_(task, config) {
-  var category = String(ggetValueSimple_20260707_(task, config, 'カテゴリー') || '');
-
-  if (/SNS|ＳＮＳ/i.test(category)) {
-    return true;
-  }
-
-  return false;
-}
-
-
-/**
- * テンプレートからmessage生成。
- */
-function ggetMakeMessageSimple_20260707_(task, config, template, botKun) {
-  var oldMessage = String(task.message || '');
-  var toPrefix = ggetExtractToPrefixSimple_20260707_(oldMessage);
-
-  var message = String(template || '');
-
-  // Apps Scriptで不安定な lookbehind 正規表現は使わない
-  var variables = ggetExtractVariablesSimple_20260707_(message);
-
-  variables.forEach(function(name) {
-    var value = ggetResolveValueSimple_20260707_(task, config, oldMessage, name, botKun);
-
-    if (value === null || value === undefined) {
-      value = '';
-    }
-
-    message = ggetReplaceAllSimple_20260707_(
-      message,
-      '{' + name + '}',
-      String(value)
-    );
-  });
-
-  return toPrefix + message;
-}
-
-
-/**
- * テンプレート変数ごとの値取得。
- */
-function ggetResolveValueSimple_20260707_(task, config, oldMessage, name, botKun) {
-  if (name === 'PJコード') {
-    return ggetCleanCodeSimple_20260707_(
-      ggetExtractCodeSimple_20260707_(oldMessage)
-      || ggetGetPjCodeByOriginalFunctionSimple_20260707_(task, config, botKun)
-      || ggetValueSimple_20260707_(task, config, 'PJコード')
-    );
-  }
-
-  if (name === '社内締切') {
-    return ggetExtractDeadlineSimple_20260707_(oldMessage)
-      || ggetValueSimple_20260707_(task, config, '社内締切');
-  }
-
-  if (name === '投稿日時') {
-    return ggetLooseValueSimple_20260707_(task, config, [
-      '投稿日時',
-      '投稿日',
-      '投稿時間'
-    ]);
-  }
-
-  if (name === '社外シート') {
-    return ggetLooseValueSimple_20260707_(task, config, [
-      '社外シート',
-      '社外sheet',
-      '社外Sheet',
-      '社外SHEET'
-    ]);
-  }
-
-  if (name === '社内シート') {
-    return ggetLooseValueSimple_20260707_(task, config, [
-      '社内シート',
-      '社内sheet',
-      '社内Sheet',
-      '社内SHEET'
-    ]);
-  }
-
-  if (name === '備考') {
-    return ggetLooseValueSimple_20260707_(task, config, [
-      '備考',
-      'メモ',
-      'コメント'
-    ]);
-  }
-
-  if (name === '展開メッセージ') {
-    return '';
-  }
-
-  return ggetValueSimple_20260707_(task, config, name);
-}
-
-
-/**
- * BotKun既存のPJコード取得関数を呼び出す。
- * 自前で設定シートを読まず、元々のconfig側ロジックを優先する。
- */
-function ggetGetPjCodeByOriginalFunctionSimple_20260707_(task, config, botKun) {
-  var category = ggetValueSimple_20260707_(task, config, 'カテゴリー');
-
-  if (!category) {
-    return '';
-  }
-
-  var targets = [];
-
-  if (botKun && botKun.pj && botKun.pj.config) {
-    targets.push(botKun.pj.config);
-  }
-
-  if (config) {
-    targets.push(config);
-  }
-
-  for (var t = 0; t < targets.length; t++) {
-    var target = targets[t];
-
-    var functionNames = [
-      'getPJCode',
-      'getPJcode',
-      'getPjCode',
-      'getPjcode'
-    ];
-
-    for (var i = 0; i < functionNames.length; i++) {
-      var functionName = functionNames[i];
-
-      if (typeof target[functionName] !== 'function') {
-        continue;
-      }
-
-      try {
-        var pjCode = target[functionName](category);
-
-        if (ggetHasValueSimple_20260707_(pjCode)) {
-          console.log(
-            'PJコード取得成功: function="' + functionName + '"' +
-            ' / category="' + category + '"' +
-            ' / PJコード="' + pjCode + '"'
-          );
-          return pjCode;
-        }
-      } catch (e) {
-        console.warn(
-          'PJコード取得関数の呼び出しに失敗: function="' +
-          functionName + '" / error=' + e
-        );
-      }
-    }
-  }
-
-  console.warn('既存のPJコード取得関数で取得できませんでした: category=' + category);
-  return '';
-}
-
-
-/**
- * header名から値取得。
- */
-function ggetValueSimple_20260707_(task, config, headerName) {
-  if (!task || !task.rawArray || !config || !config.currentHeaders) {
-    return '';
-  }
-
-  var index = config.currentHeaders.indexOf(headerName);
-
-  if (index === -1) {
-    return '';
-  }
-
-  var value = task.rawArray[index];
-
-  if (value === null || value === undefined) {
-    return '';
-  }
-
-  return value;
-}
-
-
-/**
- * 複数候補のheader名から値取得。
- */
-function ggetLooseValueSimple_20260707_(task, config, headerNames) {
-  for (var i = 0; i < headerNames.length; i++) {
-    var value = ggetValueSimple_20260707_(task, config, headerNames[i]);
-
-    if (ggetHasValueSimple_20260707_(value)) {
-      return value;
-    }
-  }
-
-  return '';
-}
-
-
-/**
- * 実質的に値があるか判定。
- */
-function ggetHasValueSimple_20260707_(value) {
-  if (value === null || value === undefined) {
-    return false;
-  }
-
-  var text = String(value)
-    .replace(/\r/g, '')
-    .replace(/\n/g, '')
-    .replace(/\t/g, '')
-    .replace(/\s/g, '')
-    .replace(/　/g, '')
-    .trim();
-
-  if (!text) {
-    return false;
-  }
-
-  if (
-    text === '⚠️未記入⚠️' ||
-    text === '未記入' ||
-    text === '-' ||
-    text === 'ー'
-  ) {
-    return false;
-  }
-
-  return true;
-}
-
-
-/**
- * 旧message先頭のToだけ残す。
- */
-function ggetExtractToPrefixSimple_20260707_(message) {
-  var lines = String(message || '').split('\n');
-  var toLines = [];
-
-  for (var i = 0; i < lines.length; i++) {
-    if (/^\[To:\d+\]/.test(lines[i])) {
-      toLines.push(lines[i]);
-    } else {
-      break;
-    }
-  }
-
-  if (toLines.length === 0) {
-    return '';
-  }
-
-  return toLines.join('\n') + '\n\n';
-}
-
-
-/**
- * 旧messageから[code]内を取得。
- */
-function ggetExtractCodeSimple_20260707_(message) {
-  var match = String(message || '').match(/\[code\]([\s\S]*?)\[\/code\]/);
-  return match ? match[1].trim() : '';
-}
-
-
-/**
- * PJコードにcodeタグが混ざった場合は除去。
- */
-function ggetCleanCodeSimple_20260707_(value) {
-  return String(value || '')
-    .replace(/\[code\]/g, '')
-    .replace(/\[\/code\]/g, '')
-    .trim();
-}
-
-
-/**
- * 旧messageから〆以降を取得。
- */
-function ggetExtractDeadlineSimple_20260707_(message) {
-  var match = String(message || '').match(/〆([\s\S]*?)\[\/title\]/);
-  return match ? match[1].trim() : '';
-}
-
-
-/**
- * テンプレート内の {変数名} を抽出する。
- * Apps Scriptで不安定な lookbehind 正規表現を使わない版。
- */
-function ggetExtractVariablesSimple_20260707_(text) {
-  var result = [];
-  var reg = /\{([^{}]+)\}/g;
-  var match;
-
-  while ((match = reg.exec(String(text || ''))) !== null) {
-    result.push(match[1]);
-  }
-
-  return result;
-}
-
-
-/**
- * replaceAll互換。
- */
-function ggetReplaceAllSimple_20260707_(text, search, replacement) {
-  return String(text).split(search).join(replacement);
-}

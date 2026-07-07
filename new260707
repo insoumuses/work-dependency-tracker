@@ -4,14 +4,13 @@ function getTenkaiParams () {
   console.warn('LOADING TENKAI PARAMS');
   console.time('Loading message');
 
-  let botKun = BotKun.summon(magicIncantation);
+  var botKun = BotKun.summon(magicIncantation);
   botKun.loadProject();
 
-  // 通常通り3件取得
-  let parameters = botKun.pj.tenkai.makeTenkaiParams(3);
+  var parameters = botKun.pj.tenkai.makeTenkaiParams(3);
 
-  // GGET用：投稿日時の有無で通常 / SNS テンプレートを自動切替
-  parameters = ggetModeRewriteV8_20260707_(parameters, botKun);
+  // GGET用：投稿日時の有無で通常 / SNS を自動切替
+  parameters = ggetModeRewriteSimple_20260707_(parameters, botKun);
 
   console.log(JSON.stringify(parameters, null, 2));
 
@@ -21,20 +20,20 @@ function getTenkaiParams () {
 
 
 /**
- * GGET依頼管理表専用：
+ * GGET依頼管理表専用・簡易版
  *
- * 判断基準：
- *   投稿日時あり → SNS関連依頼
- *   投稿日時なし → SNS以外の依頼
+ * 判断：
+ *   投稿日時あり → SNS関連テンプレート
+ *   投稿日時なし → 通常テンプレート
  *
- * ※ カテゴリー名では判断しない。
- * ※ 202607などの月別シート名は書き死にしない。
- * ※ 【ver.1】/【ver.2】は本文に入れない。
+ * ※ テンプレートシートは読まない
+ * ※ 月別シート名は見ない
+ * ※ 全シート検索しないので軽い
  */
-function ggetModeRewriteV8_20260707_(parameters, botKun) {
-  const config = botKun.pj.config.data;
+function ggetModeRewriteSimple_20260707_(parameters, botKun) {
+  var config = botKun.pj.config.data;
 
-  const templates = {
+  var templates = {
     normal:
 `お疲れ様です(coffee)
 下記のご対応をお願いいたします。
@@ -50,64 +49,52 @@ function ggetModeRewriteV8_20260707_(parameters, botKun) {
 SNS関連の依頼が届きました。下記のご対応をお願いいたします。
 [info][title]【{依頼番号}】〆{社内締切}[/title]
 {カテゴリー}
+
 {投稿日時}
 {社外シート}
 {備考}
 [/info]
 [code]{PJコード}[/code]
+
 よろしくお願いいたします。`
   };
 
-  console.log('========== GGET TEMPLATE AUTO MODE V8 ==========');
-  console.log('normal template preview:\n' + templates.normal);
-  console.log('sns template preview:\n' + templates.sns);
-  console.log('================================================');
-
-  return ggetRewriteParamsV8_20260707_(parameters, config, templates);
+  return ggetRewriteSimple_20260707_(parameters, config, templates);
 }
 
 
 /**
- * parameters を再帰的に処理して message を書き換える。
+ * parameters 内の依頼データを探して message を書き換える。
  */
-function ggetRewriteParamsV8_20260707_(value, config, templates) {
+function ggetRewriteSimple_20260707_(value, config, templates) {
   if (Array.isArray(value)) {
-    const hasTaskObjects = value.some(function(item) {
-      return ggetIsTaskObjectV8_20260707_(item);
-    });
-
-    if (hasTaskObjects) {
-      console.log('タスク配列を検出: ' + value.length + '件');
-
-      return value.map(function(item) {
-        if (!ggetIsTaskObjectV8_20260707_(item)) return item;
-
-        const requestNo = ggetGetValueByHeaderV8_20260707_(item, config, '依頼番号', true);
-        const category  = ggetGetValueByHeaderV8_20260707_(item, config, 'カテゴリー', true);
-        const isSns     = ggetIsSnsTaskV8_20260707_(item, config);
-
-        console.log('[' + requestNo + '] カテゴリー="' + category + '" / isSns=' + isSns);
-
-        const template = isSns ? templates.sns : templates.normal;
-
-        item.message = ggetMakeMessageFromTemplateV8_20260707_(item, config, template);
-
-        if (item.message === null || item.message === undefined) {
-          item.message = '';
-        }
-
-        return item;
-      });
-    }
-
     return value.map(function(item) {
-      return ggetRewriteParamsV8_20260707_(item, config, templates);
+      if (ggetIsTaskObjectSimple_20260707_(item)) {
+        var isSns = ggetIsSnsSimple_20260707_(item, config);
+        var template = isSns ? templates.sns : templates.normal;
+
+        var requestNo = ggetValueSimple_20260707_(item, config, '依頼番号');
+        var category  = ggetValueSimple_20260707_(item, config, 'カテゴリー');
+        var postDate  = ggetLooseValueSimple_20260707_(item, config, ['投稿日時', '投稿日', '投稿時間']);
+
+        console.log(
+          '[' + requestNo + '] category="' + category + '"' +
+          ' / 投稿日時="' + postDate + '"' +
+          ' / isSns=' + isSns
+        );
+
+        item.message = ggetMakeMessageSimple_20260707_(item, config, template);
+      } else {
+        item = ggetRewriteSimple_20260707_(item, config, templates);
+      }
+
+      return item;
     });
   }
 
   if (value && typeof value === 'object') {
     Object.keys(value).forEach(function(key) {
-      value[key] = ggetRewriteParamsV8_20260707_(value[key], config, templates);
+      value[key] = ggetRewriteSimple_20260707_(value[key], config, templates);
     });
   }
 
@@ -116,178 +103,160 @@ function ggetRewriteParamsV8_20260707_(value, config, templates) {
 
 
 /**
- * BotKun の依頼データオブジェクト判定。
+ * BotKunの依頼データ判定。
  */
-function ggetIsTaskObjectV8_20260707_(obj) {
+function ggetIsTaskObjectSimple_20260707_(obj) {
   return obj && typeof obj === 'object' && Array.isArray(obj.rawArray);
 }
 
 
 /**
- * SNS関連依頼の判定。
+ * SNS関連判定。
  *
- * 判断基準：
- *   投稿日時に実質的な内容がある → SNS関連
- *   投稿日時が空                 → SNS以外
+ * 第一判断：
+ *   投稿日時が入っているか
  *
- * ※ カテゴリーでは判断しない。
- * ※ BotKunのheadersに投稿日時がない場合は、Spreadsheet本体から依頼番号で探す。
+ * 兜底：
+ *   カテゴリーに 投稿予約 が含まれるか
  */
-function ggetIsSnsTaskV8_20260707_(task, config) {
-  const requestNo = ggetGetValueByHeaderV8_20260707_(task, config, '依頼番号', true);
-  const category  = ggetGetValueByHeaderV8_20260707_(task, config, 'カテゴリー', true);
-
-  let postDateValue = ggetGetPostDateValueV8_20260707_(task, config);
-
-  const isSns = ggetHasMeaningfulValueV8_20260707_(postDateValue);
-
-  console.log(
-    '[' + requestNo + '] SNS判定: ' +
-    'category="' + category + '", ' +
-    '投稿日時="' + postDateValue + '", ' +
-    'isSns=' + isSns
-  );
-
-  return isSns;
-}
-
-
-/**
- * 投稿日時を取得する。
- *
- * 1. BotKunのrawArrayから取得
- * 2. 取れない場合、Spreadsheet本体から依頼番号で取得
- */
-function ggetGetPostDateValueV8_20260707_(task, config) {
-  const requestNo = ggetGetValueByHeaderV8_20260707_(task, config, '依頼番号', true);
-
-  let value = ggetGetValueByHeaderLooseV8_20260707_(task, config, [
+function ggetIsSnsSimple_20260707_(task, config) {
+  var postDate = ggetLooseValueSimple_20260707_(task, config, [
     '投稿日時',
-    '投稿時間',
     '投稿日',
-    '投稿日・時間'
+    '投稿時間'
   ]);
 
-  if (ggetHasMeaningfulValueV8_20260707_(value)) {
-    return value;
+  if (ggetHasValueSimple_20260707_(postDate)) {
+    return true;
   }
 
-  value = ggetFindValueFromSheetByRequestNoV8_20260707_(
-    requestNo,
-    [
-      '投稿日時',
-      '投稿時間',
-      '投稿日',
-      '投稿日・時間'
-    ]
-  );
+  var category = String(ggetValueSimple_20260707_(task, config, 'カテゴリー') || '');
 
-  return value;
+  // 投稿日時が取れない場合の保険
+  if (/投稿予約/.test(category)) {
+    return true;
+  }
+
+  return false;
 }
 
 
 /**
- * テンプレートから message を生成。
+ * テンプレートからmessage生成。
  */
-function ggetMakeMessageFromTemplateV8_20260707_(task, config, template) {
-  const oldMessage = task.message || '';
-  const toPrefix   = ggetExtractToPrefixV8_20260707_(oldMessage);
+function ggetMakeMessageSimple_20260707_(task, config, template) {
+  var oldMessage = String(task.message || '');
+  var toPrefix = ggetExtractToPrefixSimple_20260707_(oldMessage);
 
-  let message = String(template || '');
+  var message = String(template || '');
+  var variables = message.match(/(?<={)([^{}]+)(?=})/g) || [];
 
-  if (!message.trim()) {
-    console.warn('テンプレートが空 → 旧messageを保持');
-    return oldMessage;
-  }
+  variables.forEach(function(name) {
+    var value = ggetResolveValueSimple_20260707_(task, config, oldMessage, name);
 
-  const variablesToSearch = message.match(/(?<={)([^{}]+)(?=})/g) || [];
-
-  variablesToSearch.forEach(function(headerName) {
-    let value = ggetResolveTemplateValueV8_20260707_(task, config, oldMessage, headerName);
-
-    if (value === null || value === undefined) value = '';
-
-    if (value instanceof Date) {
-      value = ggetFormatDateV8_20260707_(value);
-    } else if (typeof value === 'string' && ggetIsDateStringV8_20260707_(value)) {
-      value = ggetFormatDateV8_20260707_(new Date(value));
+    if (value === null || value === undefined) {
+      value = '';
     }
 
-    message = ggetReplaceAllV8_20260707_(message, '{' + headerName + '}', String(value));
+    message = ggetReplaceAllSimple_20260707_(
+      message,
+      '{' + name + '}',
+      String(value)
+    );
   });
-
-  // 念のため、ver見出しが混入した場合は削除
-  message = message
-    .replace(/^[\s　]*[【\[]ver\.\d+[】\]][\s　]*\n?/gmi, '')
-    .replace(/\[code\]\s*\[\/code\]/g, '[code][/code]');
 
   return toPrefix + message;
 }
 
 
 /**
- * テンプレート変数ごとの値を取得。
+ * 変数ごとの値取得。
  */
-function ggetResolveTemplateValueV8_20260707_(task, config, oldMessage, headerName) {
-  const requestNo = ggetGetValueByHeaderV8_20260707_(task, config, '依頼番号', true);
-
-  if (headerName === 'PJコード') {
-    return ggetCleanCodeValueV8_20260707_(
-      ggetExtractCodeBlockV8_20260707_(oldMessage)
-      || ggetGetValueByHeaderV8_20260707_(task, config, 'PJコード', true)
+function ggetResolveValueSimple_20260707_(task, config, oldMessage, name) {
+  if (name === 'PJコード') {
+    return ggetCleanCodeSimple_20260707_(
+      ggetExtractCodeSimple_20260707_(oldMessage)
+      || ggetValueSimple_20260707_(task, config, 'PJコード')
     );
   }
 
-  if (headerName === '社内締切') {
-    return ggetExtractDeadlineFromOldMessageV8_20260707_(oldMessage)
-      || ggetGetValueByHeaderV8_20260707_(task, config, '社内締切', true);
+  if (name === '社内締切') {
+    return ggetExtractDeadlineSimple_20260707_(oldMessage)
+      || ggetValueSimple_20260707_(task, config, '社内締切');
   }
 
-  if (headerName === '社内シート') {
-    return ggetGetValueByHeaderLooseV8_20260707_(task, config, [
-      '社内シート',
-      '社内sheet',
-      '社内Sheet',
-      '社内SHEET'
+  if (name === '投稿日時') {
+    return ggetLooseValueSimple_20260707_(task, config, [
+      '投稿日時',
+      '投稿日',
+      '投稿時間'
     ]);
   }
 
-  if (headerName === '社外シート') {
-    return ggetGetValueByHeaderLooseV8_20260707_(task, config, [
+  if (name === '社外シート') {
+    return ggetLooseValueSimple_20260707_(task, config, [
       '社外シート',
       '社外sheet',
-      '社外Sheet',
-      '社外SHEET'
+      '社外Sheet'
     ]);
   }
 
-  if (headerName === '投稿日時') {
-    return ggetGetPostDateValueV8_20260707_(task, config);
+  if (name === '社内シート') {
+    return ggetLooseValueSimple_20260707_(task, config, [
+      '社内シート',
+      '社内sheet',
+      '社内Sheet'
+    ]);
   }
 
-  if (headerName === '備考') {
-    return ggetGetValueByHeaderLooseV8_20260707_(task, config, [
+  if (name === '備考') {
+    return ggetLooseValueSimple_20260707_(task, config, [
       '備考',
       'メモ',
       'コメント'
     ]);
   }
 
-  if (headerName === '展開メッセージ') {
+  if (name === '展開メッセージ') {
     return '';
   }
 
-  return ggetGetValueByHeaderV8_20260707_(task, config, headerName, true);
+  return ggetValueSimple_20260707_(task, config, name);
 }
 
 
 /**
- * ヘッダー名の揺れに対応して値を取得。
+ * header名から値取得。
  */
-function ggetGetValueByHeaderLooseV8_20260707_(task, config, headerNames) {
-  for (const name of headerNames) {
-    const value = ggetGetValueByHeaderV8_20260707_(task, config, name, true);
-    if (ggetHasMeaningfulValueV8_20260707_(value)) {
+function ggetValueSimple_20260707_(task, config, headerName) {
+  if (!task || !task.rawArray || !config || !config.currentHeaders) {
+    return '';
+  }
+
+  var index = config.currentHeaders.indexOf(headerName);
+
+  if (index === -1) {
+    return '';
+  }
+
+  var value = task.rawArray[index];
+
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  return value;
+}
+
+
+/**
+ * 複数候補のheader名から値取得。
+ */
+function ggetLooseValueSimple_20260707_(task, config, headerNames) {
+  for (var i = 0; i < headerNames.length; i++) {
+    var value = ggetValueSimple_20260707_(task, config, headerNames[i]);
+
+    if (ggetHasValueSimple_20260707_(value)) {
       return value;
     }
   }
@@ -297,131 +266,14 @@ function ggetGetValueByHeaderLooseV8_20260707_(task, config, headerNames) {
 
 
 /**
- * headerName から rawArray の値を取得。
+ * 実質的に値があるか判定。
  */
-function ggetGetValueByHeaderV8_20260707_(task, config, headerName, silent) {
-  if (!task || !task.rawArray || !config || !config.currentHeaders) return '';
-
-  const colIndex = config.currentHeaders.indexOf(headerName);
-
-  if (colIndex === -1) {
-    if (!silent) {
-      console.warn('ヘッダーが見つかりません: "' + headerName + '"');
-      console.log('currentHeaders = ' + JSON.stringify(config.currentHeaders));
-    }
-    return '';
+function ggetHasValueSimple_20260707_(value) {
+  if (value === null || value === undefined) {
+    return false;
   }
 
-  const value = task.rawArray[colIndex];
-  return (value === null || value === undefined) ? '' : value;
-}
-
-
-/**
- * Spreadsheet本体から、依頼番号をキーにして指定ヘッダーの値を取得する。
- *
- * 202607などのシート名は固定しない。
- * 「依頼番号」と「投稿日時」を持つシートを自動で探す。
- */
-function ggetFindValueFromSheetByRequestNoV8_20260707_(requestNo, targetHeaderNames) {
-  if (!requestNo) return '';
-
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheets = ss.getSheets();
-
-  const normalizedRequestNo = String(requestNo).trim();
-
-  for (const sheet of sheets) {
-    const sheetName = sheet.getName();
-
-    // 設定系・テンプレ系のシートは除外
-    if (
-      /設定|テンプレート|定型文|リマインダー|休日|シフト|対応/.test(sheetName)
-    ) {
-      continue;
-    }
-
-    const lastRow = sheet.getLastRow();
-    const lastCol = sheet.getLastColumn();
-
-    if (lastRow < 2 || lastCol < 1) continue;
-
-    const headers = sheet.getRange(1, 1, 1, lastCol).getDisplayValues()[0];
-
-    const requestNoCol = ggetFindHeaderIndexV8_20260707_(headers, ['依頼番号']);
-    const targetCol = ggetFindHeaderIndexV8_20260707_(headers, targetHeaderNames);
-
-    if (requestNoCol === -1 || targetCol === -1) {
-      continue;
-    }
-
-    const values = sheet.getRange(2, 1, lastRow - 1, lastCol).getDisplayValues();
-
-    for (let r = 0; r < values.length; r++) {
-      const rowRequestNo = String(values[r][requestNoCol] || '').trim();
-
-      if (rowRequestNo === normalizedRequestNo) {
-        const foundValue = values[r][targetCol];
-
-        console.log(
-          '[fallback] sheet="' + sheetName + '" ' +
-          '依頼番号="' + normalizedRequestNo + '" ' +
-          'target="' + headers[targetCol] + '" ' +
-          'value="' + foundValue + '"'
-        );
-
-        return foundValue || '';
-      }
-    }
-  }
-
-  console.warn('[fallback] 指定ヘッダーの値を取得できませんでした。依頼番号=' + requestNo);
-  return '';
-}
-
-
-/**
- * ヘッダー名の表記揺れを吸収して列番号を探す。
- */
-function ggetFindHeaderIndexV8_20260707_(headers, targetHeaderNames) {
-  const normalizedHeaders = headers.map(function(h) {
-    return ggetNormalizeHeaderNameV8_20260707_(h);
-  });
-
-  for (const target of targetHeaderNames) {
-    const normalizedTarget = ggetNormalizeHeaderNameV8_20260707_(target);
-    const index = normalizedHeaders.indexOf(normalizedTarget);
-
-    if (index !== -1) {
-      return index;
-    }
-  }
-
-  return -1;
-}
-
-
-/**
- * ヘッダー名比較用の正規化。
- */
-function ggetNormalizeHeaderNameV8_20260707_(value) {
-  return String(value || '')
-    .replace(/\r/g, '')
-    .replace(/\n/g, '')
-    .replace(/\t/g, '')
-    .replace(/\s/g, '')
-    .replace(/　/g, '')
-    .trim();
-}
-
-
-/**
- * 空欄・未記入系を除外して、実質的な値があるか判定する。
- */
-function ggetHasMeaningfulValueV8_20260707_(value) {
-  if (value === null || value === undefined) return false;
-
-  const text = String(value)
+  var text = String(value)
     .replace(/\r/g, '')
     .replace(/\n/g, '')
     .replace(/\t/g, '')
@@ -429,7 +281,9 @@ function ggetHasMeaningfulValueV8_20260707_(value) {
     .replace(/　/g, '')
     .trim();
 
-  if (!text) return false;
+  if (!text) {
+    return false;
+  }
 
   if (
     text === '⚠️未記入⚠️' ||
@@ -445,41 +299,41 @@ function ggetHasMeaningfulValueV8_20260707_(value) {
 
 
 /**
- * 旧messageの先頭 [To:xxxx] 行だけ取り出す。
+ * 旧message先頭のToだけ残す。
  */
-function ggetExtractToPrefixV8_20260707_(message) {
-  if (!message) return '';
+function ggetExtractToPrefixSimple_20260707_(message) {
+  var lines = String(message || '').split('\n');
+  var toLines = [];
 
-  const lines = String(message).split('\n');
-  const toLines = [];
-
-  for (const line of lines) {
-    if (/^\[To:\d+\]/.test(line)) {
-      toLines.push(line);
+  for (var i = 0; i < lines.length; i++) {
+    if (/^\[To:\d+\]/.test(lines[i])) {
+      toLines.push(lines[i]);
     } else {
       break;
     }
   }
 
-  return toLines.length > 0 ? toLines.join('\n') + '\n\n' : '';
+  if (toLines.length === 0) {
+    return '';
+  }
+
+  return toLines.join('\n') + '\n\n';
 }
 
 
 /**
- * 旧messageから [code]...[/code] を取得。
+ * 旧messageから[code]内を取得。
  */
-function ggetExtractCodeBlockV8_20260707_(message) {
-  if (!message) return '';
-
-  const match = String(message).match(/\[code\]([\s\S]*?)\[\/code\]/);
+function ggetExtractCodeSimple_20260707_(message) {
+  var match = String(message || '').match(/\[code\]([\s\S]*?)\[\/code\]/);
   return match ? match[1].trim() : '';
 }
 
 
 /**
- * PJコード値に [code] / [/code] が混ざっていた場合に除去。
+ * PJコードにcodeタグが混ざった場合は除去。
  */
-function ggetCleanCodeValueV8_20260707_(value) {
+function ggetCleanCodeSimple_20260707_(value) {
   return String(value || '')
     .replace(/\[code\]/g, '')
     .replace(/\[\/code\]/g, '')
@@ -488,48 +342,17 @@ function ggetCleanCodeValueV8_20260707_(value) {
 
 
 /**
- * 旧messageから title 内の「〆」以降を取得。
+ * 旧messageから〆以降を取得。
  */
-function ggetExtractDeadlineFromOldMessageV8_20260707_(message) {
-  if (!message) return '';
-
-  const match = String(message).match(/〆([\s\S]*?)\[\/title\]/);
+function ggetExtractDeadlineSimple_20260707_(message) {
+  var match = String(message || '').match(/〆([\s\S]*?)\[\/title\]/);
   return match ? match[1].trim() : '';
 }
 
 
 /**
- * Date → m/d(曜) HH:mm
+ * replaceAll互換。
  */
-function ggetFormatDateV8_20260707_(date) {
-  const days = ['日','月','火','水','木','金','土'];
-  const m   = date.getMonth() + 1;
-  const d   = date.getDate();
-  const w   = days[date.getDay()];
-  const h   = String(date.getHours()).padStart(2, '0');
-  const min = String(date.getMinutes()).padStart(2, '0');
-
-  return `${m}/${d}(${w}) ${h}:${min}`;
-}
-
-
-/**
- * Date文字列かどうか判定。
- */
-function ggetIsDateStringV8_20260707_(value) {
-  if (!value) return false;
-
-  const str = String(value);
-  const date = new Date(str);
-
-  return !isNaN(date.getTime())
-    && /GMT|標準時|^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(str);
-}
-
-
-/**
- * Apps Script用 replaceAll 互換。
- */
-function ggetReplaceAllV8_20260707_(text, search, replacement) {
+function ggetReplaceAllSimple_20260707_(text, search, replacement) {
   return String(text).split(search).join(replacement);
 }

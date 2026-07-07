@@ -1,10 +1,81 @@
+// create messages
+// function called from the client side (see clientScript)
+function getTenkaiParams () {
+  console.warn('LOADING TENKAI PARAMS');
+  console.time('Loading message');
+
+  let botKun = BotKun.summon(magicIncantation);
+  botKun.loadProject();
+
+  // GGET用：
+  // SNSモードで絞り込んでも3件残せるように、最初は多めに取得する
+  let parameters = botKun.pj.tenkai.makeTenkaiParams(10);
+
+  parameters = ggetModeRewriteV4_20260707_(parameters, botKun);
+
+  console.log(JSON.stringify(parameters, null, 2));
+
+  console.timeEnd('Loading message');
+  return JSON.stringify(parameters);
+}
+
+
+/**
+ * GGET依頼管理表専用：
+ * 設定!A2 の内容で通常モード / SNSモードを切り替える
+ *
+ * 通常モード：
+ *   SNS以外も含めて最新の依頼を残す
+ *   設定!A2 のテンプレートで message を作り直す
+ *
+ * SNSモード：
+ *   カテゴリーに SNS / ＳＮＳ が含まれる案件だけ残す
+ *   設定!A2 のSNSテンプレートで message を作り直す
+ */
+function ggetModeRewriteV4_20260707_(parameters, botKun) {
+  const config = botKun.pj.config.data;
+  const activeTemplate = ggetReadSettingA2TemplateV4_20260707_();
+
+  // 設定!A2 にこの文言がある場合だけSNSモードにする
+  const isSnsMode = /SNS関連の依頼が届きました/.test(activeTemplate || '');
+
+  console.log('========== GGET MODE CHECK ==========');
+  console.log('isSnsMode = ' + isSnsMode);
+  console.log('template preview = ' + String(activeTemplate).slice(0, 300));
+  console.log('=====================================');
+
+  return ggetRewriteParamsV4_20260707_(parameters, config, activeTemplate, isSnsMode);
+}
+
+
+/**
+ * 設定!A2 を直接読む
+ * config.tenkaiText はキャッシュっぽく残る可能性があるので使わない
+ */
+function ggetReadSettingA2TemplateV4_20260707_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('設定');
+
+  if (!sheet) {
+    console.warn('設定 sheet not found');
+    return '';
+  }
+
+  return sheet.getRange('A2').getValue();
+}
+
+
 /**
  * parameters 全体を再帰的に見て、依頼データ配列を処理する
+ *
+ * 注意：
+ * parameters の中にはUI側で必要な情報も入っている可能性があるため、
+ * task object 以外は削除しない。
  */
-function ggetRewriteParamsV2_20260703_(value, config, template, snsMode) {
+function ggetRewriteParamsV4_20260707_(value, config, template, snsMode) {
   if (Array.isArray(value)) {
     const hasTaskObjects = value.some(function(item) {
-      return ggetIsTaskObjectV2_20260703_(item);
+      return ggetIsTaskObjectV4_20260707_(item);
     });
 
     if (hasTaskObjects) {
@@ -15,22 +86,24 @@ function ggetRewriteParamsV2_20260703_(value, config, template, snsMode) {
       const result = value
         .filter(function(item) {
           // task object 以外はUI側で必要な可能性があるので残す
-          if (!ggetIsTaskObjectV2_20260703_(item)) {
+          if (!ggetIsTaskObjectV4_20260707_(item)) {
             return true;
           }
 
-          const requestNo = ggetGetValueByHeaderV2_20260703_(item, config, '依頼番号');
-          const category = ggetGetValueByHeaderV2_20260703_(item, config, 'カテゴリー');
+          const requestNo = ggetGetValueByHeaderV4_20260707_(item, config, '依頼番号');
+          const category = ggetGetValueByHeaderV4_20260707_(item, config, 'カテゴリー');
 
           console.log('task check: ' + requestNo + ' / ' + category);
 
-          // SNSモードの場合はSNS案件だけ残す
-          if (snsMode && !ggetIsSnsTaskV2_20260703_(item, config)) {
+          // SNSモードの場合だけ、SNS以外の依頼を除外する
+          if (snsMode && !ggetIsSnsTaskV4_20260707_(item, config)) {
+            console.log('filtered by SNS mode: ' + requestNo + ' / ' + category);
             return false;
           }
 
           // 表示する依頼は最大3件まで
           if (taskCount >= 3) {
+            console.log('filtered by count limit: ' + requestNo + ' / ' + category);
             return false;
           }
 
@@ -38,11 +111,11 @@ function ggetRewriteParamsV2_20260703_(value, config, template, snsMode) {
           return true;
         })
         .map(function(item) {
-          if (!ggetIsTaskObjectV2_20260703_(item)) {
+          if (!ggetIsTaskObjectV4_20260707_(item)) {
             return item;
           }
 
-          item.message = ggetMakeMessageFromTemplateV2_20260703_(item, config, template);
+          item.message = ggetMakeMessageFromTemplateV4_20260707_(item, config, template);
 
           if (item.message === null || item.message === undefined) {
             item.message = '';
@@ -58,15 +131,164 @@ function ggetRewriteParamsV2_20260703_(value, config, template, snsMode) {
     }
 
     return value.map(function(item) {
-      return ggetRewriteParamsV2_20260703_(item, config, template, snsMode);
+      return ggetRewriteParamsV4_20260707_(item, config, template, snsMode);
     });
   }
 
   if (value && typeof value === 'object') {
     Object.keys(value).forEach(function(key) {
-      value[key] = ggetRewriteParamsV2_20260703_(value[key], config, template, snsMode);
+      value[key] = ggetRewriteParamsV4_20260707_(value[key], config, template, snsMode);
     });
   }
 
   return value;
+}
+
+
+/**
+ * BotKun が生成した依頼データかどうか判定
+ *
+ * message が未生成の場合もあるため、
+ * rawArray があれば依頼データとして扱う。
+ */
+function ggetIsTaskObjectV4_20260707_(obj) {
+  return obj
+    && typeof obj === 'object'
+    && Array.isArray(obj.rawArray);
+}
+
+
+/**
+ * カテゴリー列だけを見てSNS案件か判定
+ */
+function ggetIsSnsTaskV4_20260707_(task, config) {
+  const category = ggetGetValueByHeaderV4_20260707_(task, config, 'カテゴリー');
+  return /SNS|ＳＮＳ/i.test(category || '');
+}
+
+
+/**
+ * 指定テンプレートから message を作成
+ */
+function ggetMakeMessageFromTemplateV4_20260707_(task, config, template) {
+  const oldMessage = task.message || '';
+  const toPrefix = ggetExtractToPrefixV4_20260707_(oldMessage);
+
+  let message = template || '';
+
+  const variablesToSearch = message.match(/(?<={)([^{}]+)(?=})/g) || [];
+
+  variablesToSearch.forEach(function(headerName) {
+    let value = '';
+
+    // 旧S列の展開メッセージは使わない。
+    // ここを読むと、表格函数の結果が混ざって重複する可能性があるため。
+    if (headerName === '展開メッセージ') {
+      value = '';
+    } else {
+      value = ggetGetValueByHeaderV4_20260707_(task, config, headerName);
+    }
+
+    if (value === null || value === undefined) {
+      value = '';
+    }
+
+    if (value instanceof Date) {
+      value = ggetFormatDateV4_20260707_(value);
+    }
+
+    if (typeof value === 'string' && ggetIsDateStringV4_20260707_(value)) {
+      value = ggetFormatDateV4_20260707_(new Date(value));
+    }
+
+    message = message.replaceAll('{' + headerName + '}', value);
+  });
+
+  return toPrefix + message;
+}
+
+
+/**
+ * 既存messageの先頭にある [To:xxxx] 行だけを残す
+ */
+function ggetExtractToPrefixV4_20260707_(message) {
+  if (!message) {
+    return '';
+  }
+
+  const lines = message.split('\n');
+  const toLines = [];
+
+  for (const line of lines) {
+    if (/^\[To:\d+\]/.test(line)) {
+      toLines.push(line);
+    } else {
+      break;
+    }
+  }
+
+  if (toLines.length === 0) {
+    return '';
+  }
+
+  return toLines.join('\n') + '\n';
+}
+
+
+/**
+ * header名から rawArray 内の値を取得
+ */
+function ggetGetValueByHeaderV4_20260707_(task, config, headerName) {
+  if (!task || !task.rawArray || !config || !config.currentHeaders) {
+    return '';
+  }
+
+  const colIndex = config.currentHeaders.indexOf(headerName);
+
+  if (colIndex === -1) {
+    console.warn('header not found: ' + headerName);
+    console.log('currentHeaders = ' + JSON.stringify(config.currentHeaders));
+    return '';
+  }
+
+  const value = task.rawArray[colIndex];
+
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  return value;
+}
+
+
+/**
+ * Date型を m/d(曜) HH:mm に変換
+ */
+function ggetFormatDateV4_20260707_(date) {
+  let dateStr = `${date.getMonth() + 1}/${date.getDate()}`;
+  dateStr += `(${['日','月','火','水','木','金','土'][date.getDay()]}) `;
+
+  let hours = date.getHours().toString();
+  let minutes = date.getMinutes().toString();
+
+  dateStr += hours.length === 1 ? '0' + hours : hours;
+  dateStr += ':';
+  dateStr += minutes.length === 1 ? '0' + minutes : minutes;
+
+  return dateStr;
+}
+
+
+/**
+ * Date文字列かどうか判定
+ */
+function ggetIsDateStringV4_20260707_(value) {
+  if (!value) {
+    return false;
+  }
+
+  const date = new Date(value);
+
+  return !isNaN(date.getTime())
+    && /GMT|標準時|^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(value);
 }

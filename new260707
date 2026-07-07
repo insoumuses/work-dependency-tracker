@@ -29,7 +29,7 @@ function getTenkaiParams () {
  *
  * ※ テンプレートシートは読まない
  * ※ 月別シート名は見ない
- * ※ 全シート検索しないので軽い
+ * ※ PJコードはBotKun既存の取得関数を優先して使う
  */
 function ggetModeRewriteSimple_20260707_(parameters, botKun) {
   var config = botKun.pj.config.data;
@@ -60,14 +60,14 @@ SNS関連の依頼が届きました。下記のご対応をお願いいたし�
 よろしくお願いいたします。`
   };
 
-  return ggetRewriteSimple_20260707_(parameters, config, templates);
+  return ggetRewriteSimple_20260707_(parameters, config, templates, botKun);
 }
 
 
 /**
  * parameters 内の依頼データを探して message を書き換える。
  */
-function ggetRewriteSimple_20260707_(value, config, templates) {
+function ggetRewriteSimple_20260707_(value, config, templates, botKun) {
   if (Array.isArray(value)) {
     return value.map(function(item) {
       if (ggetIsTaskObjectSimple_20260707_(item)) {
@@ -88,9 +88,9 @@ function ggetRewriteSimple_20260707_(value, config, templates) {
           ' / isSns=' + isSns
         );
 
-        item.message = ggetMakeMessageSimple_20260707_(item, config, template);
+        item.message = ggetMakeMessageSimple_20260707_(item, config, template, botKun);
       } else {
-        item = ggetRewriteSimple_20260707_(item, config, templates);
+        item = ggetRewriteSimple_20260707_(item, config, templates, botKun);
       }
 
       return item;
@@ -99,7 +99,7 @@ function ggetRewriteSimple_20260707_(value, config, templates) {
 
   if (value && typeof value === 'object') {
     Object.keys(value).forEach(function(key) {
-      value[key] = ggetRewriteSimple_20260707_(value[key], config, templates);
+      value[key] = ggetRewriteSimple_20260707_(value[key], config, templates, botKun);
     });
   }
 
@@ -135,7 +135,7 @@ function ggetIsSnsSimple_20260707_(task, config) {
 /**
  * テンプレートからmessage生成。
  */
-function ggetMakeMessageSimple_20260707_(task, config, template) {
+function ggetMakeMessageSimple_20260707_(task, config, template, botKun) {
   var oldMessage = String(task.message || '');
   var toPrefix = ggetExtractToPrefixSimple_20260707_(oldMessage);
 
@@ -145,7 +145,7 @@ function ggetMakeMessageSimple_20260707_(task, config, template) {
   var variables = ggetExtractVariablesSimple_20260707_(message);
 
   variables.forEach(function(name) {
-    var value = ggetResolveValueSimple_20260707_(task, config, oldMessage, name);
+    var value = ggetResolveValueSimple_20260707_(task, config, oldMessage, name, botKun);
 
     if (value === null || value === undefined) {
       value = '';
@@ -165,10 +165,11 @@ function ggetMakeMessageSimple_20260707_(task, config, template) {
 /**
  * テンプレート変数ごとの値取得。
  */
-function ggetResolveValueSimple_20260707_(task, config, oldMessage, name) {
+function ggetResolveValueSimple_20260707_(task, config, oldMessage, name, botKun) {
   if (name === 'PJコード') {
     return ggetCleanCodeSimple_20260707_(
       ggetExtractCodeSimple_20260707_(oldMessage)
+      || ggetGetPjCodeByOriginalFunctionSimple_20260707_(task, config, botKun)
       || ggetValueSimple_20260707_(task, config, 'PJコード')
     );
   }
@@ -217,6 +218,69 @@ function ggetResolveValueSimple_20260707_(task, config, oldMessage, name) {
   }
 
   return ggetValueSimple_20260707_(task, config, name);
+}
+
+
+/**
+ * BotKun既存のPJコード取得関数を呼び出す。
+ * 自前で設定シートを読まず、元々のconfig側ロジックを優先する。
+ */
+function ggetGetPjCodeByOriginalFunctionSimple_20260707_(task, config, botKun) {
+  var category = ggetValueSimple_20260707_(task, config, 'カテゴリー');
+
+  if (!category) {
+    return '';
+  }
+
+  var targets = [];
+
+  if (botKun && botKun.pj && botKun.pj.config) {
+    targets.push(botKun.pj.config);
+  }
+
+  if (config) {
+    targets.push(config);
+  }
+
+  for (var t = 0; t < targets.length; t++) {
+    var target = targets[t];
+
+    var functionNames = [
+      'getPJCode',
+      'getPJcode',
+      'getPjCode',
+      'getPjcode'
+    ];
+
+    for (var i = 0; i < functionNames.length; i++) {
+      var functionName = functionNames[i];
+
+      if (typeof target[functionName] !== 'function') {
+        continue;
+      }
+
+      try {
+        var pjCode = target[functionName](category);
+
+        if (ggetHasValueSimple_20260707_(pjCode)) {
+          console.log(
+            'PJコード取得成功: function="' + functionName + '"' +
+            ' / category="' + category + '"' +
+            ' / PJコード="' + pjCode + '"'
+          );
+          return pjCode;
+        }
+      } catch (e) {
+        console.warn(
+          'PJコード取得関数の呼び出しに失敗: function="' +
+          functionName + '" / error=' + e
+        );
+      }
+    }
+  }
+
+  console.warn('既存のPJコード取得関数で取得できませんでした: category=' + category);
+  return '';
 }
 
 

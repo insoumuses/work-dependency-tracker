@@ -7,9 +7,10 @@ function getTenkaiParams () {
   var botKun = BotKun.summon(magicIncantation);
   botKun.loadProject();
 
+  // 通常通り3件取得
   var parameters = botKun.pj.tenkai.makeTenkaiParams(3);
 
-  // GGET用：投稿日時の有無で通常 / SNS を自動切替
+  // GGET用：SNS関連 / SNS以外 を自動切替
   parameters = ggetModeRewriteSimple_20260707_(parameters, botKun);
 
   console.log(JSON.stringify(parameters, null, 2));
@@ -23,8 +24,8 @@ function getTenkaiParams () {
  * GGET依頼管理表専用・簡易版
  *
  * 判断：
- *   投稿日時あり → SNS関連テンプレート
- *   投稿日時なし → 通常テンプレート
+ *   カテゴリーに SNS / ＳＮＳ が含まれる → SNS関連テンプレート
+ *   それ以外                         → 通常テンプレート
  *
  * ※ テンプレートシートは読まない
  * ※ 月別シート名は見ない
@@ -70,12 +71,16 @@ function ggetRewriteSimple_20260707_(value, config, templates) {
   if (Array.isArray(value)) {
     return value.map(function(item) {
       if (ggetIsTaskObjectSimple_20260707_(item)) {
-        var isSns = ggetIsSnsSimple_20260707_(item, config);
-        var template = isSns ? templates.sns : templates.normal;
-
         var requestNo = ggetValueSimple_20260707_(item, config, '依頼番号');
         var category  = ggetValueSimple_20260707_(item, config, 'カテゴリー');
-        var postDate  = ggetLooseValueSimple_20260707_(item, config, ['投稿日時', '投稿日', '投稿時間']);
+        var postDate  = ggetLooseValueSimple_20260707_(item, config, [
+          '投稿日時',
+          '投稿日',
+          '投稿時間'
+        ]);
+
+        var isSns = ggetIsSnsSimple_20260707_(item, config);
+        var template = isSns ? templates.sns : templates.normal;
 
         console.log(
           '[' + requestNo + '] category="' + category + '"' +
@@ -113,27 +118,13 @@ function ggetIsTaskObjectSimple_20260707_(obj) {
 /**
  * SNS関連判定。
  *
- * 第一判断：
- *   投稿日時が入っているか
- *
- * 兜底：
- *   カテゴリーに 投稿予約 が含まれるか
+ * 今回は「①SNS関連」と「②SNS以外」の2分類。
+ * そのため、SNS翻訳チェックもSNS関連として扱う。
  */
 function ggetIsSnsSimple_20260707_(task, config) {
-  var postDate = ggetLooseValueSimple_20260707_(task, config, [
-    '投稿日時',
-    '投稿日',
-    '投稿時間'
-  ]);
-
-  if (ggetHasValueSimple_20260707_(postDate)) {
-    return true;
-  }
-
   var category = String(ggetValueSimple_20260707_(task, config, 'カテゴリー') || '');
 
-  // 投稿日時が取れない場合の保険
-  if (/投稿予約/.test(category)) {
+  if (/SNS|ＳＮＳ/i.test(category)) {
     return true;
   }
 
@@ -149,7 +140,9 @@ function ggetMakeMessageSimple_20260707_(task, config, template) {
   var toPrefix = ggetExtractToPrefixSimple_20260707_(oldMessage);
 
   var message = String(template || '');
-  var variables = message.match(/(?<={)([^{}]+)(?=})/g) || [];
+
+  // Apps Scriptで不安定な lookbehind 正規表現は使わない
+  var variables = ggetExtractVariablesSimple_20260707_(message);
 
   variables.forEach(function(name) {
     var value = ggetResolveValueSimple_20260707_(task, config, oldMessage, name);
@@ -170,7 +163,7 @@ function ggetMakeMessageSimple_20260707_(task, config, template) {
 
 
 /**
- * 変数ごとの値取得。
+ * テンプレート変数ごとの値取得。
  */
 function ggetResolveValueSimple_20260707_(task, config, oldMessage, name) {
   if (name === 'PJコード') {
@@ -197,7 +190,8 @@ function ggetResolveValueSimple_20260707_(task, config, oldMessage, name) {
     return ggetLooseValueSimple_20260707_(task, config, [
       '社外シート',
       '社外sheet',
-      '社外Sheet'
+      '社外Sheet',
+      '社外SHEET'
     ]);
   }
 
@@ -205,7 +199,8 @@ function ggetResolveValueSimple_20260707_(task, config, oldMessage, name) {
     return ggetLooseValueSimple_20260707_(task, config, [
       '社内シート',
       '社内sheet',
-      '社内Sheet'
+      '社内Sheet',
+      '社内SHEET'
     ]);
   }
 
@@ -347,6 +342,23 @@ function ggetCleanCodeSimple_20260707_(value) {
 function ggetExtractDeadlineSimple_20260707_(message) {
   var match = String(message || '').match(/〆([\s\S]*?)\[\/title\]/);
   return match ? match[1].trim() : '';
+}
+
+
+/**
+ * テンプレート内の {変数名} を抽出する。
+ * Apps Scriptで不安定な lookbehind 正規表現を使わない版。
+ */
+function ggetExtractVariablesSimple_20260707_(text) {
+  var result = [];
+  var reg = /\{([^{}]+)\}/g;
+  var match;
+
+  while ((match = reg.exec(String(text || ''))) !== null) {
+    result.push(match[1]);
+  }
+
+  return result;
 }
 
 

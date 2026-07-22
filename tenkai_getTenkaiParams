@@ -1,16 +1,252 @@
 // create messages
 // function called from the client side (see clientScript)
-function getTenkaiParams () {
+function getTenkaiParams() {
   console.warn('LOADING TENKAI PARAMS');
   console.time('Loading message');
 
-  let botKun = BotKun.summon(magicIncantation)
-  botKun.loadProject()
+  const botKun = BotKun.summon(magicIncantation);
+  botKun.loadProject();
 
-  let parameters = botKun.pj.tenkai.makeTenkaiParams(3)
+  /*
+   * makeTenkaiMessageではなく、
+   * 独自のmakeTenkaiParamsを呼び出す。
+   */
+  const parameters = makeTenkaiParams_20260716_(3, botKun);
 
-  console.log(parameters)
+  console.log(
+    'FINAL TENKAI PARAMETERS = ' +
+    JSON.stringify(parameters, null, 2)
+  );
 
-  console.timeEnd('Loading message')
-  return JSON.stringify(parameters)
+  console.timeEnd('Loading message');
+
+  return JSON.stringify(parameters);
+}
+
+
+/**
+ * 最新の進行中タスクを取得し、
+ * 各タスクの展開文と担当者情報を作成する。
+ */
+function makeTenkaiParams_20260716_(getNLatestTasks, botKun) {
+  const limit = Number(getNLatestTasks) > 0
+    ? Number(getNLatestTasks)
+    : 1;
+
+  let tasks = botKun.pj.taskSheet.getOngoingTasks(limit);
+
+  /*
+   * 想定外の戻り値に備える。
+   */
+  if (!Array.isArray(tasks)) {
+    console.warn(
+      'getOngoingTasksの戻り値が配列ではありません。',
+      tasks
+    );
+    tasks = [];
+  }
+
+  /*
+   * 前端のラジオボタン数に合わせて最大3件に制限。
+   */
+  tasks = tasks.slice(0, limit);
+
+  for (const task of tasks) {
+    /*
+     * makeTenkaiMessageに必要なデータを確認。
+     */
+    if (!task || typeof task !== 'object') {
+      console.warn('不正なtaskをスキップします。', task);
+      continue;
+    }
+
+    if (!Array.isArray(task.rawArray)) {
+      console.warn(
+        'task.rawArrayが取得できません。',
+        JSON.stringify(task, null, 2)
+      );
+      task.rawArray = [];
+    }
+
+    if (
+      !task.teams ||
+      typeof task.teams !== 'object' ||
+      Array.isArray(task.teams)
+    ) {
+      console.warn(
+        'task.teamsが取得できません。',
+        JSON.stringify(task, null, 2)
+      );
+      task.teams = {};
+    }
+
+    task.message = makeTenkaiMessage_20260716_(task, botKun);
+
+    /*
+     * 既にtask.tantoがある場合はそれを優先。
+     * なければ従来通りrawArray[0]を使用。
+     */
+    const tantoId =
+      task.tanto != null && task.tanto !== ''
+        ? task.tanto
+        : task.rawArray[0];
+
+    task.tanto = tantoId != null && tantoId !== ''
+      ? botKun.cw.members.get(tantoId)
+      : null;
+  }
+
+  console.log('FAST SNS loaded!');
+
+  return {
+    room: botKun.pj.config.data.room,
+    tasks: tasks
+  };
+}
+
+
+/**
+ * タスクごとの展開メッセージを生成する。
+ *
+ * テンプレートはtask.rawArray[19]から取得する。
+ */
+function makeTenkaiMessage_20260716_(task, botKun) {
+  const config = botKun.pj.config.data;
+
+  /*
+   * rawArray[19]が空の場合にJSON.parse(undefined)を行わない。
+   */
+  const templateValue = task.rawArray[19];
+
+  if (
+    templateValue == null ||
+    String(templateValue).trim() === ''
+  ) {
+    console.warn(
+      '展開テンプレートが未取得です。rawArray[19]を確認してください。',
+      JSON.stringify(task.rawArray)
+    );
+
+    return '⚠️展開テンプレート未取得⚠️';
+  }
+
+  /*
+   * 文字列の安全なコピー。
+   */
+  let message = String(templateValue);
+
+  const concernedTeams = Object.entries(task.teams || {})
+    .filter(function ([team, status]) {
+      return status === '';
+    })
+    .map(function ([team]) {
+      return team;
+    });
+
+  /*
+   * テンプレート内の{列名}を取得。
+   * 変数がない場合は空配列にする。
+   */
+  const regVariableExtractor = /(?<={)(.*?)(?=})/g;
+  const variablesToSearch =
+    message.match(regVariableExtractor) || [];
+
+  for (const headerName of variablesToSearch) {
+    let value;
+
+    if (headerName.includes('対象チーム')) {
+      value = concernedTeams.length > 0
+        ? `【${concernedTeams.join('】【')}】`
+        : '⚠️対象チーム未取得⚠️';
+    }
+
+    else if (headerName.includes('PJコード')) {
+      const taskTypeHeader =
+        config.extractHeaders &&
+        config.extractHeaders.taskType;
+
+      const taskTypeIndex =
+        Array.isArray(config.currentHeaders)
+          ? config.currentHeaders.indexOf(taskTypeHeader)
+          : -1;
+
+      const taskType =
+        taskTypeIndex >= 0
+          ? task.rawArray[taskTypeIndex]
+          : task.taskType;
+
+      const categoryIndex =
+        Array.isArray(config.categories)
+          ? config.categories.indexOf(taskType)
+          : -1;
+
+      value =
+        categoryIndex >= 0 &&
+        Array.isArray(config.pjCodes)
+          ? config.pjCodes[categoryIndex]
+          : '⚠️PJコード未取得⚠️';
+    }
+
+    else {
+      const headerIndex =
+        Array.isArray(config.currentHeaders)
+          ? config.currentHeaders.indexOf(headerName)
+          : -1;
+
+      if (headerIndex >= 0) {
+        const rawValue = task.rawArray[headerIndex];
+
+        value =
+          rawValue !== undefined &&
+          rawValue !== null &&
+          rawValue !== ''
+            ? rawValue
+            : '⚠️未記入⚠️';
+      }
+      else {
+        value =
+          `⚠️不正常な列名 : 「${headerName}」⚠️`;
+      }
+    }
+
+    if (
+      Object.prototype.toString.call(value) ===
+      '[object Date]'
+    ) {
+      value = formatDate_20260716_(value);
+    }
+
+    message = message.replaceAll(
+      `{${headerName}}`,
+      String(value)
+    );
+  }
+
+  if (config.tenkaiAutomaticTo) {
+    return botKun.cw.rooms.getTeamsTos(
+      config.room.id,
+      concernedTeams
+    ) + message;
+  }
+
+  return message;
+}
+
+
+/**
+ * 日付をM/D(曜日) HH:mm形式に変換する。
+ */
+function formatDate_20260716_(date) {
+  let dateString =
+    `${date.getMonth() + 1}/${date.getDate()}`;
+
+  dateString +=
+    `(${['日', '月', '火', '水', '木', '金', '土'][date.getDay()]}) `;
+
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+
+  dateString += `${hours}:${minutes}`;
+
+  return dateString;
 }

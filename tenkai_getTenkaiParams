@@ -223,13 +223,139 @@ function makeTenkaiMessage_20260716_(task, botKun) {
   }
 
   if (config.tenkaiAutomaticTo) {
-    return botKun.cw.rooms.getTeamsTos(
-      config.room.id,
-      concernedTeams
-    ) + message;
+    /*
+     * getTeamsTosで自動生成されるTo部分のみを整形する。
+     * チームごとにToを取得し、1チーム1行で表示する。
+     * 本文messageには変更を加えない。
+     */
+    const formattedTos =
+      makeGroupedAutomaticTos_20260722_(
+        botKun,
+        config.room.id,
+        concernedTeams
+      );
+
+    return formattedTos + message;
   }
 
   return message;
+}
+
+
+/**
+ * 対象チームごとに自動Toを生成し、
+ * 1チーム1行の形式に整形する。
+ *
+ * 出力例：
+ * [To:4167833]ピーターソン マーカス [To:8122752]ケイティー [To:10245419]アルバート
+ * [To:10382973]アキラ [To:10892882]コウ
+ * [To:10511955]ブ [To:10892884]シュウ
+ * [To:10414641]ジンミョン [To:10447727]ユミ
+ */
+function makeGroupedAutomaticTos_20260722_(botKun, roomId, concernedTeams) {
+  if (!Array.isArray(concernedTeams) || concernedTeams.length === 0) {
+    return '';
+  }
+
+  return concernedTeams
+    .map(function (team) {
+      /*
+       * チームを1つずつ指定することで、
+       * 英語／繁体字／簡体字／韓国語ごとに改行する。
+       */
+      const originalTos = botKun.cw.rooms.getTeamsTos(
+        roomId,
+        [team]
+      );
+
+      return formatAutomaticTosNicknameInline_20260722_(originalTos);
+    })
+    .filter(function (line) {
+      return line != null && String(line).trim() !== '';
+    })
+    .join('\n') + '\n\n';
+}
+
+
+/**
+ * getTeamsTosが返したTo一覧を、
+ * 同一チーム内で横並びの [To:ID]呼び方 形式に整形する。
+ *
+ * 例：
+ * [To:10511955]WO 武 静妍(ブ)_SC
+ * → [To:10511955]ブ
+ *
+ * [To:10892884]WO 周 碧琳（シュウ）_SC
+ * → [To:10892884]シュウ
+ *
+ * [To:4167833]WO ピーターソン マーカス_ENGD
+ * → [To:4167833]ピーターソン マーカス
+ */
+function formatAutomaticTosNicknameInline_20260722_(tos) {
+  if (tos == null || tos === '') {
+    return tos;
+  }
+
+  return String(tos)
+    .split(/\r?\n/)
+    .map(function (line) {
+      line = String(line);
+
+      if (line.trim() === '') {
+        return '';
+      }
+
+      /*
+       * [To:ユーザーID]部分を取得する。
+       */
+      const toMatch = line.match(/^(\[To:\d+\])/);
+
+      if (!toMatch) {
+        return line;
+      }
+
+      /*
+       * 半角括弧 (...) または全角括弧（...）内の呼び方を優先して取得する。
+       */
+      const nicknameMatch = line.match(
+        /(?:\(([^()]+)\)|（([^（）]+)）)/
+      );
+
+      if (nicknameMatch) {
+        const nickname = String(
+          nicknameMatch[1] || nicknameMatch[2] || ''
+        ).trim();
+
+        if (nickname !== '') {
+          return toMatch[1] + nickname;
+        }
+      }
+
+      /*
+       * 括弧内の呼び方がない場合：
+       * [To:ID]以降から、WO・言語コード・さん等を除去して名前部分を残す。
+       */
+      let namePart = line.replace(/^(\[To:\d+\])/, '');
+
+      namePart = namePart
+        .replace(/^WO\s*/i, '')
+        .replace(/さん\s*$/g, '')
+        .replace(/_[A-Z]+[A-Z0-9]*\s*$/g, '')
+        .trim();
+
+      if (namePart === '') {
+        /*
+         * 取得失敗時はデータ消失を避けるため元の行を維持する。
+         */
+        return line;
+      }
+
+      return toMatch[1] + namePart;
+    })
+    .filter(function (line) {
+      return line !== '';
+    })
+    .join(' ');
 }
 
 
